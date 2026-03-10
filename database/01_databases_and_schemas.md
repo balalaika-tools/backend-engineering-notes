@@ -1,0 +1,647 @@
+# Databases, Schemas, and SQL Foundations
+
+> **Who this is for**: Engineers who know how to code but want a solid mental model of relational databases before touching Python drivers or ORMs.
+
+---
+
+## 1. What Is a Relational Database?
+
+A relational database stores data in **tables** (relations). Each table has a fixed set of **columns** (the structure) and a variable number of **rows** (the data). Tables can reference each other through **foreign keys**, forming a web of related data.
+
+```
+users table                    posts table
+─────────────────────          ──────────────────────────────────
+id | email       | name        id | title    | author_id | published
+───┼─────────────┼────         ───┼──────────┼───────────┼─────────
+1  | a@b.com     | Alice       1  | Hello    | 1         | true
+2  | x@y.com     | Bob         2  | World    | 1         | false
+                               3  | Intro    | 2         | true
+```
+
+`posts.author_id` is a **foreign key** — it points to `users.id`. This is how you express "a post belongs to a user" without duplicating user data in every row.
+
+### Why Relational?
+
+- **Data integrity**: The database enforces rules (unique emails, non-null names, valid foreign keys).
+- **No duplication**: Data lives in one place. Update a user's email once, everywhere sees the change.
+- **Flexible queries**: SQL lets you slice and combine data any way you need.
+- **ACID guarantees**: Transactions are reliable even if the server crashes mid-operation.
+
+---
+
+## 2. PostgreSQL vs SQLite — Choosing the Right Tool
+
+### PostgreSQL
+
+Full-featured, production-grade database. Use it for any application that will run in production.
+
+| Feature | Detail |
+|---------|--------|
+| Concurrency | MVCC — many readers/writers simultaneously without blocking |
+| Data types | Rich: `JSONB`, arrays, `UUID`, `INET`, `TSVECTOR`, ranges |
+| Indexes | B-tree, Hash, GIN (for JSONB/arrays), GiST, BRIN |
+| Full-text search | Built-in `tsvector` + `tsquery` |
+| Replication | Streaming replication, logical replication |
+| Extensions | `pgvector` (embeddings), `PostGIS` (geospatial), `pg_trgm` (fuzzy search) |
+| Max DB size | No practical limit (tested to petabytes) |
+
+**When to use PostgreSQL**: Always. For web apps, APIs, microservices — PostgreSQL is the default right choice.
+
+### SQLite
+
+File-based, zero-configuration, serverless. The database is a single `.db` file.
+
+```python
+# Entire database is one file
+"sqlite:///./local.db"
+"sqlite+aiosqlite:///./local.db"  # async
+":memory:"                         # in-memory, lost when process ends
+```
+
+| Feature | Detail |
+|---------|--------|
+| Setup | None — just a file |
+| Concurrency | Only one writer at a time (WAL mode improves this) |
+| Data types | Dynamic typing (not enforced) |
+| Max size | ~281 TB theoretical, impractical above ~100 GB |
+| Network | No — must be on same machine |
+
+**When to use SQLite**:
+- Local development (no Docker needed)
+- Unit and integration tests (fast, clean state per test)
+- CLI tools, scripts, small embedded apps
+- Never in production for a web server with concurrent writes
+
+### The SQLite-to-PostgreSQL Switch
+
+During development you might use SQLite, then switch to PostgreSQL for production. The switch is mostly painless with SQLAlchemy, but watch out for:
+
+| Difference | SQLite | PostgreSQL |
+|-----------|--------|------------|
+| Boolean | `0`/`1` integers | Native `BOOL` |
+| Auto-increment | `INTEGER PRIMARY KEY` | `SERIAL` or `GENERATED ALWAYS AS IDENTITY` |
+| String comparisons | Case-insensitive by default | Case-sensitive |
+| `LIKE` operator | Case-insensitive | Case-sensitive (use `ILIKE`) |
+| `JSON` type | Stored as text | Native `JSONB` with indexing |
+
+**Recommendation**: Use PostgreSQL everywhere, including local dev (via Docker). Eliminates the "works on my machine" class of bugs.
+
+---
+
+## 3. Core Concepts: Tables, Columns, and Data Types
+
+### Tables and Columns
+
+A **table** maps to a real-world entity: users, orders, products.
+A **column** is an attribute of that entity with a specific type.
+A **row** is a single instance.
+
+```sql
+CREATE TABLE users (
+    id          SERIAL PRIMARY KEY,
+    email       VARCHAR(255) NOT NULL UNIQUE,
+    name        VARCHAR(100) NOT NULL,
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### PostgreSQL Data Types You Will Actually Use
+
+| Type | Use case | Example |
+|------|----------|---------|
+| `INTEGER` / `BIGINT` | Whole numbers, IDs | `42`, `-7` |
+| `SERIAL` / `BIGSERIAL` | Auto-increment integers | Primary keys |
+| `UUID` | Universally unique IDs | `gen_random_uuid()` |
+| `VARCHAR(n)` | Short strings with max length | Emails, names |
+| `TEXT` | Unlimited text | Content, descriptions |
+| `BOOLEAN` | True/false | `TRUE`, `FALSE` |
+| `NUMERIC(p,s)` | Exact decimals | Money: `NUMERIC(10,2)` |
+| `FLOAT` / `DOUBLE PRECISION` | Approximate decimals | Coordinates, percentages |
+| `TIMESTAMP` | Date + time, no timezone | Internal timestamps |
+| `TIMESTAMPTZ` | Date + time with timezone | **Prefer this for user-facing times** |
+| `DATE` | Date only | Birthdays, due dates |
+| `JSONB` | Binary JSON, indexable | Flexible data, config, events |
+| `ARRAY` | Array of a type | `INTEGER[]`, `TEXT[]` |
+| `INET` | IP address | Client IPs |
+| `TSVECTOR` | Full-text search | Search indexes |
+
+### JSONB — PostgreSQL's Superpower
+
+`JSONB` stores JSON as binary, not text. It's compressed, indexed, and queryable:
+
+```sql
+-- Querying inside JSONB
+SELECT * FROM events WHERE payload->>'event_type' = 'login';
+
+-- Index a specific key
+CREATE INDEX ON events ((payload->>'user_id'));
+
+-- GIN index for arbitrary key queries
+CREATE INDEX ON events USING GIN (payload);
+```
+
+Use `JSONB` when:
+- Data is schemaless or highly variable (audit logs, config, metadata)
+- You need to store arbitrary key-value pairs
+- You want to avoid a schema migration for every new field
+
+Avoid `JSONB` when the data is structured and you need to filter/join on its contents frequently — a proper column with an index will always be faster.
+
+---
+
+## 4. Constraints — Enforcing Data Integrity at the Database Level
+
+Constraints are rules the database enforces on every write. They are your last line of defense.
+
+### PRIMARY KEY
+
+Uniquely identifies each row. Cannot be NULL. Usually an auto-increment integer or UUID.
+
+```sql
+id SERIAL PRIMARY KEY
+id UUID PRIMARY KEY DEFAULT gen_random_uuid()
+```
+
+### UNIQUE
+
+No two rows can have the same value(s). Can span multiple columns.
+
+```sql
+email VARCHAR(255) UNIQUE                          -- single column
+UNIQUE (user_id, team_id)                          -- composite unique (no duplicate memberships)
+```
+
+### NOT NULL
+
+Column must always have a value. Without this, `NULL` is allowed (and `NULL != NULL` in SQL, which causes bugs).
+
+```sql
+name VARCHAR(100) NOT NULL
+```
+
+### FOREIGN KEY
+
+Links rows between tables. Prevents orphaned records.
+
+```sql
+author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
+```
+
+`ON DELETE` behaviors:
+
+| Behavior | What happens when parent row is deleted |
+|----------|----------------------------------------|
+| `RESTRICT` | Block the delete (error) — default |
+| `CASCADE` | Delete child rows automatically |
+| `SET NULL` | Set the FK column to NULL |
+| `SET DEFAULT` | Set the FK column to its default value |
+
+### CHECK
+
+Validates a condition on the row:
+
+```sql
+age INTEGER CHECK (age >= 0 AND age <= 150)
+status VARCHAR(20) CHECK (status IN ('pending', 'active', 'cancelled'))
+```
+
+### DEFAULT
+
+Sets the value when none is provided:
+
+```sql
+is_active   BOOLEAN NOT NULL DEFAULT TRUE
+created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+---
+
+## 5. Indexes — Making Queries Fast
+
+An index is a separate data structure (usually a B-tree) that PostgreSQL maintains to allow fast lookups.
+
+### Without an Index
+
+```sql
+SELECT * FROM users WHERE email = 'alice@example.com';
+-- PostgreSQL scans every row (sequential scan) — O(n)
+```
+
+### With an Index
+
+```sql
+CREATE INDEX ON users (email);
+SELECT * FROM users WHERE email = 'alice@example.com';
+-- PostgreSQL jumps directly to the row — O(log n)
+```
+
+### Index Types
+
+| Type | Use case | Example |
+|------|----------|---------|
+| B-tree (default) | Equality, range queries (`=`, `<`, `>`, `BETWEEN`) | Most columns |
+| Hash | Equality only (`=`) — smaller, faster for equality | `id = $1` |
+| GIN | JSONB, arrays, full-text search | `payload @> '{"type":"login"}'` |
+| GiST | Geometric data, full-text | PostGIS, `tsvector` |
+| BRIN | Very large tables with naturally ordered data | Append-only logs by timestamp |
+
+### When to Add an Index
+
+Add indexes on columns you:
+- Filter on (`WHERE email = $1`)
+- Sort on frequently (`ORDER BY created_at DESC`)
+- Join on (`JOIN posts ON posts.author_id = users.id`)
+- Use as a foreign key
+
+**Unique constraint = unique index.** When you declare `UNIQUE`, PostgreSQL creates the index automatically.
+
+### Index Cost
+
+Indexes are not free:
+- Every `INSERT`, `UPDATE`, `DELETE` must update all indexes on that table
+- Indexes use disk space
+- Too many indexes on a write-heavy table can slow it down
+
+Rule of thumb: add indexes for your known query patterns. Don't index everything preemptively. Use `EXPLAIN ANALYZE` to see if a query is using indexes.
+
+```sql
+EXPLAIN ANALYZE SELECT * FROM users WHERE email = 'alice@example.com';
+```
+
+---
+
+## 6. Schemas — Namespacing Tables
+
+In PostgreSQL, a **schema** is a namespace inside a database. Think of it like a folder.
+
+```
+database: myapp
+├── schema: public (default)
+│   ├── users
+│   ├── posts
+│   └── comments
+├── schema: analytics
+│   ├── events
+│   └── sessions
+└── schema: auth
+    ├── tokens
+    └── sessions
+```
+
+```sql
+-- Access a table in a specific schema
+SELECT * FROM analytics.events;
+
+-- Create a schema
+CREATE SCHEMA analytics;
+
+-- Set the search path (which schemas to check by default)
+SET search_path = public, analytics;
+```
+
+In most Python apps with a single database, you only use `public`. Schemas become useful for:
+- Multi-tenant apps (one schema per tenant)
+- Logical separation of concerns (auth, core, reporting)
+- Preventing name collisions when using multiple modules
+
+---
+
+## 7. Transactions and ACID
+
+A **transaction** groups multiple SQL statements into a single atomic unit. Either all statements succeed, or none of them do.
+
+```sql
+BEGIN;
+    UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+    UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+COMMIT;
+-- Both updates committed, or neither is
+```
+
+If anything goes wrong between `BEGIN` and `COMMIT`:
+
+```sql
+BEGIN;
+    UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+    -- server crashes here
+-- PostgreSQL automatically rolls back — balance unchanged
+```
+
+### ACID Properties
+
+| Property | Meaning | Example |
+|----------|---------|---------|
+| **Atomicity** | All or nothing — partial transactions don't exist | Money transfer: both debits and credits happen, or neither does |
+| **Consistency** | Transaction leaves the database in a valid state | Constraints are checked before commit |
+| **Isolation** | Concurrent transactions don't interfere with each other | Two users booking the last seat don't both succeed |
+| **Durability** | Committed data survives crashes | Written to disk (WAL) before `COMMIT` returns |
+
+### Isolation Levels
+
+PostgreSQL supports four isolation levels. The default is `READ COMMITTED`.
+
+| Level | Prevents | Use case |
+|-------|----------|----------|
+| `READ UNCOMMITTED` | Nothing (same as READ COMMITTED in PG) | N/A in PostgreSQL |
+| `READ COMMITTED` | Dirty reads | Default — good for most apps |
+| `REPEATABLE READ` | Dirty reads, non-repeatable reads | Reporting queries that must see consistent snapshot |
+| `SERIALIZABLE` | All anomalies | Financial operations, strict correctness |
+
+```sql
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+-- all reads see the same snapshot for the duration
+COMMIT;
+```
+
+In Python, with SQLAlchemy:
+
+```python
+async with session.begin():
+    await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
+    # ... queries
+```
+
+### Savepoints — Nested Rollbacks
+
+```sql
+BEGIN;
+    INSERT INTO users (email) VALUES ('a@b.com');
+    SAVEPOINT sp1;
+    INSERT INTO users (email) VALUES ('a@b.com');  -- duplicate!
+    ROLLBACK TO SAVEPOINT sp1;                      -- undo only the second insert
+    -- first insert is still in transaction
+COMMIT;
+```
+
+Savepoints let you roll back part of a transaction without aborting the whole thing. SQLAlchemy exposes this via `session.begin_nested()`.
+
+---
+
+## 8. SQL Fundamentals
+
+### SELECT — Reading Data
+
+```sql
+-- Basic
+SELECT id, email, name FROM users;
+
+-- All columns (avoid in production code — fragile against schema changes)
+SELECT * FROM users;
+
+-- Filter
+SELECT * FROM users WHERE is_active = TRUE AND email LIKE '%@company.com';
+
+-- Sort
+SELECT * FROM users ORDER BY created_at DESC;
+
+-- Paginate
+SELECT * FROM users ORDER BY id LIMIT 20 OFFSET 40;
+
+-- Count
+SELECT COUNT(*) FROM users WHERE is_active = TRUE;
+```
+
+### JOINs — Combining Tables
+
+```sql
+-- INNER JOIN: only rows with a match in both tables
+SELECT u.name, p.title
+FROM posts p
+INNER JOIN users u ON p.author_id = u.id;
+
+-- LEFT JOIN: all rows from left table, matching rows from right (NULL if no match)
+SELECT u.name, COUNT(p.id) AS post_count
+FROM users u
+LEFT JOIN posts p ON p.author_id = u.id
+GROUP BY u.id, u.name;
+
+-- EXISTS: check if related rows exist
+SELECT * FROM users u
+WHERE EXISTS (
+    SELECT 1 FROM posts p WHERE p.author_id = u.id AND p.published = TRUE
+);
+```
+
+### INSERT
+
+```sql
+-- Single row
+INSERT INTO users (email, name) VALUES ('a@b.com', 'Alice');
+
+-- Return generated values
+INSERT INTO users (email, name) VALUES ('a@b.com', 'Alice') RETURNING id, created_at;
+
+-- Multiple rows
+INSERT INTO users (email, name) VALUES
+    ('a@b.com', 'Alice'),
+    ('x@y.com', 'Bob');
+
+-- Upsert (insert or update on conflict)
+INSERT INTO users (email, name) VALUES ('a@b.com', 'Alice')
+ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name;
+
+-- Ignore on conflict
+INSERT INTO users (email, name) VALUES ('a@b.com', 'Alice')
+ON CONFLICT (email) DO NOTHING;
+```
+
+### UPDATE
+
+```sql
+-- Basic update
+UPDATE users SET name = 'Alice Smith' WHERE id = 1;
+
+-- Update multiple columns
+UPDATE users SET name = 'Alice Smith', is_active = FALSE WHERE id = 1;
+
+-- Update with a subquery
+UPDATE posts SET published = TRUE
+WHERE author_id IN (SELECT id FROM users WHERE is_active = TRUE);
+
+-- Return updated rows
+UPDATE users SET is_active = FALSE WHERE id = 1 RETURNING id, email;
+```
+
+### DELETE
+
+```sql
+-- Delete specific rows
+DELETE FROM users WHERE id = 1;
+
+-- Delete with condition
+DELETE FROM users WHERE created_at < NOW() - INTERVAL '1 year' AND is_active = FALSE;
+
+-- Return deleted rows
+DELETE FROM users WHERE id = 1 RETURNING email;
+
+-- Truncate (fast delete all rows, non-transactional — careful!)
+TRUNCATE TABLE users;
+TRUNCATE TABLE users RESTART IDENTITY CASCADE;  -- also resets sequences and cascades
+```
+
+---
+
+## 9. Advanced PostgreSQL Features
+
+### Common Table Expressions (CTEs)
+
+CTEs (`WITH` clauses) let you name and reuse subqueries. They make complex queries readable.
+
+```sql
+-- Readable multi-step query
+WITH active_users AS (
+    SELECT id, name FROM users WHERE is_active = TRUE
+),
+user_post_counts AS (
+    SELECT author_id, COUNT(*) AS post_count FROM posts GROUP BY author_id
+)
+SELECT u.name, COALESCE(c.post_count, 0) AS post_count
+FROM active_users u
+LEFT JOIN user_post_counts c ON c.author_id = u.id
+ORDER BY post_count DESC;
+```
+
+### Window Functions
+
+Window functions compute a value for each row based on a "window" of related rows, without collapsing them like `GROUP BY` does.
+
+```sql
+-- Rank users by post count within each department
+SELECT
+    name,
+    department,
+    post_count,
+    RANK() OVER (PARTITION BY department ORDER BY post_count DESC) AS rank_in_dept
+FROM user_stats;
+
+-- Running total
+SELECT
+    created_at,
+    amount,
+    SUM(amount) OVER (ORDER BY created_at) AS running_total
+FROM transactions;
+
+-- Previous row's value
+SELECT
+    created_at,
+    temperature,
+    LAG(temperature) OVER (ORDER BY created_at) AS prev_temp
+FROM sensor_readings;
+```
+
+### JSONB Operators
+
+```sql
+-- Field access (returns text)
+SELECT payload->>'user_id' FROM events;
+
+-- Nested field access
+SELECT payload->'metadata'->>'source' FROM events;
+
+-- Contains (subset check)
+SELECT * FROM events WHERE payload @> '{"event_type": "login"}';
+
+-- Has key
+SELECT * FROM events WHERE payload ? 'error_code';
+
+-- Path exists
+SELECT * FROM events WHERE payload #>> '{metadata,source}' = 'web';
+```
+
+### Full-Text Search
+
+```sql
+-- Create a tsvector column
+ALTER TABLE posts ADD COLUMN search_vector tsvector
+    GENERATED ALWAYS AS (to_tsvector('english', title || ' ' || content)) STORED;
+
+CREATE INDEX ON posts USING GIN (search_vector);
+
+-- Search
+SELECT title FROM posts
+WHERE search_vector @@ to_tsquery('english', 'python & database');
+
+-- Ranked search
+SELECT title, ts_rank(search_vector, query) AS rank
+FROM posts, to_tsquery('english', 'python & database') query
+WHERE search_vector @@ query
+ORDER BY rank DESC;
+```
+
+---
+
+## 10. Database Design: Normalization
+
+**Normalization** is the process of organizing tables to reduce redundancy and prevent data anomalies.
+
+### First Normal Form (1NF)
+
+Each column contains atomic (indivisible) values. No repeating groups.
+
+```
+Bad:  users.tags = "python,backend,api"    ← CSV in a column
+Good: tags table with user_id FK           ← separate rows
+```
+
+### Second Normal Form (2NF)
+
+Every non-key column depends on the **whole** primary key (relevant for composite keys).
+
+### Third Normal Form (3NF)
+
+No transitive dependencies: non-key columns shouldn't depend on other non-key columns.
+
+```
+Bad:  orders table has both customer_id AND customer_email
+      (customer_email depends on customer_id, not on order_id)
+Good: customer_email lives in the customers table
+```
+
+### When to Denormalize
+
+Normalization reduces redundancy, but sometimes you need to **denormalize** for performance:
+
+- **Precomputed counts**: `user.post_count` column instead of counting every time
+- **Denormalized snapshots**: `orders.customer_name` captures the name at order time (immutable history)
+- **Read-heavy analytics**: flattened tables avoid expensive JOINs
+
+> Rule: normalize first, denormalize only when you have a measured performance problem.
+
+---
+
+## Quick Reference
+
+### Useful psql Commands
+
+```bash
+\l                    # list databases
+\c mydb               # connect to database
+\dt                   # list tables
+\dt+                  # list tables with sizes
+\d users              # describe table
+\di                   # list indexes
+\df                   # list functions
+\timing               # toggle query timing
+\x                    # toggle expanded output
+EXPLAIN ANALYZE ...;  # query plan + actual execution stats
+```
+
+### PostgreSQL System Queries
+
+```sql
+-- Active connections
+SELECT * FROM pg_stat_activity;
+
+-- Table sizes
+SELECT relname, pg_size_pretty(pg_total_relation_size(relid))
+FROM pg_catalog.pg_statio_user_tables
+ORDER BY pg_total_relation_size(relid) DESC;
+
+-- Unused indexes
+SELECT * FROM pg_stat_user_indexes WHERE idx_scan = 0;
+
+-- Slow queries (requires pg_stat_statements extension)
+SELECT query, calls, mean_exec_time FROM pg_stat_statements
+ORDER BY mean_exec_time DESC LIMIT 20;
+```

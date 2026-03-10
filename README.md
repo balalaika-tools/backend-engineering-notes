@@ -72,9 +72,28 @@ Production guide for calling LLMs and external services — [Full README](fastap
 
 ### Database
 
+PostgreSQL-focused — from SQL fundamentals to production async patterns. [Full README](database/README.md).
+
 | Guide | Description |
 |-------|-------------|
-| [SQLAlchemy & asyncpg](database/async_sqlalchemy.md) | Async SQLAlchemy ORM, raw asyncpg, CRUD, transactions, Alembic, bulk operations |
+| [01 — Databases & Schemas](database/01_databases_and_schemas.md) | Relational DB foundations, PostgreSQL vs SQLite, data types, constraints, indexes, ACID, SQL |
+| [02 — Python Drivers](database/02_python_drivers.md) | psycopg3 (sync + async) and asyncpg — raw driver usage, COPY protocol, bulk insert |
+| [03 — SQLAlchemy ORM](database/03_sqlalchemy_orm.md) | ORM concepts, SQLAlchemy 2.0 models, relationships, Alembic migrations |
+| [04 — Async SQLAlchemy](database/04_async_sqlalchemy.md) | Async engine/session, FastAPI integration, CRUD, transactions, eager loading, common mistakes |
+| [05 — Connection Pooling](database/05_connection_pooling.md) | Pool sizing, PgBouncer, monitoring, failure modes, timeouts |
+
+### Auth
+
+JWT and OAuth theory, plus AWS Cognito in practice. [Full README](auth/README.md).
+
+| Guide | Description |
+|-------|-------------|
+| [JWT](auth/jwt.md) | JWT structure, JWKS, trust chain, validation algorithm, Python utilities |
+| [OAuth 2.0](auth/oauth2.md) | Grant types, scopes, resource servers, M2M vs user-based patterns |
+| [Cognito — Mental Model](auth/cognito/cognito.md) | User Pools vs Identity Pools, app clients, groups |
+| [Cognito — User Pool](auth/cognito/user-pool.md) | Pool setup, auth flows, user management, Lambda triggers, boto3 |
+| [Cognito — Tokens](auth/cognito/tokens.md) | IdToken vs AccessToken, Cognito claims, validation, revocation |
+| [Cognito — OAuth in Practice](auth/cognito/oauth-jwt-guide.md) | M2M (client_credentials), user auth, FastAPI integration, testing |
 
 ### Testing
 
@@ -104,7 +123,7 @@ Production guide for calling LLMs and external services — [Full README](fastap
 2. [Concurrency](concurrency/README.md) — threads, processes, async
 3. [HTTPX](httpx/README.md) — HTTP client internals
 4. [FastAPI 01-03](fastapi/README.md) — parameters, DI, Pydantic
-5. [Database](database/async_sqlalchemy.md) — async SQLAlchemy
+5. [Database](database/README.md) — SQL foundations → drivers → ORM → async patterns
 6. [Testing](testing/fastapi_testing.md) — pytest + FastAPI
 
 ### Building a Production API
@@ -136,4 +155,4 @@ This repository covers patterns and practices for:
 
 ---
 
-*Last updated: February 2026*
+*Last updated: March 2026*
