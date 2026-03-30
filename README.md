@@ -59,7 +59,7 @@ python-backend-notes/
 |-------|-------------|
 | [Decorators](fundamentals/core_concepts/decorators.md) | `@` syntax, `functools.wraps`, parameterized decorators |
 | [Exceptions](fundamentals/core_concepts/exceptions.md) | Propagation, `raise` variants, `raise from`, production patterns |
-| [Logging](fundamentals/core_concepts/logging.md) | `logging` module, per-module vs universal, rotation |
+| [Logging](fundamentals/core_concepts/logging/README.md) | Logger hierarchy, `propagate`, handler/formatter pipeline, per-module vs universal |
 | [Structured Logging](fundamentals/core_concepts/structlog_guide.md) | structlog, processors, FastAPI integration, contextvars |
 | [Configuration](fundamentals/core_concepts/configuration.md) | pydantic-settings, `.env` files, secrets, validation |
 | [ContextVars](fundamentals/core_concepts/contextvars.md) | Request-scoped state, async-safe thread-locals, propagation patterns |
