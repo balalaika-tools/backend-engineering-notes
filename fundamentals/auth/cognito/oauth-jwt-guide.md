@@ -263,9 +263,10 @@ def get_current_user(
             signing_key.key,
             algorithms=["RS256"],
             issuer=ISSUER,
-            options={"verify_aud": False},  # Cognito access tokens use client_id not aud
+            options={"verify_aud": False},  # verify manually below — aud location differs per token type
         )
-        # For access tokens, verify client_id instead of aud
+        # IdToken puts the app client in `aud`. AccessToken puts it in `client_id`
+        # (and `aud` on an access token, when present, is the bound resource server URL).
         if claims.get("client_id") != CLIENT_ID and claims.get("aud") != CLIENT_ID:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid client")
         return claims

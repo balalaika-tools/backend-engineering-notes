@@ -321,10 +321,13 @@ In transaction mode, these PostgreSQL features break because they depend on pers
 For prepared statements with asyncpg through PgBouncer:
 
 ```python
-# asyncpg automatically prepares statements — disable this with PgBouncer
+# asyncpg automatically prepares statements — disable this with PgBouncer.
+# Set BOTH: the SQLAlchemy-level cache (prepared_statement_cache_size) and the
+# asyncpg-native cache (statement_cache_size, passed via connect_args).
 engine = create_async_engine(
     DATABASE_URL,
-    connect_args={"statement_cache_size": 0},  # disable prepared statement cache
+    prepared_statement_cache_size=0,              # SQLAlchemy-level
+    connect_args={"statement_cache_size": 0},     # asyncpg-level
 )
 ```
 

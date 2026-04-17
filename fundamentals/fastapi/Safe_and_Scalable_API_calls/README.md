@@ -33,6 +33,8 @@ The only hard concurrency limit in an external API system is imposed by the **HT
 | [06](06_advanced_patterns.md) | Advanced Patterns | Circuit breakers, priority queues, load shedding |
 | [07](07_streaming_patterns.md) | Streaming Patterns | SSE, streaming timeouts, semaphore duration |
 | [08](08_streaming_advanced.md) | Streaming Advanced | Multi-stream, aggregation, circuit breakers for streaming |
+| [09](09_distributed_admission_control.md) | Distributed Admission Control | Redis-centric admission, key taxonomy, atomic Lua, retries & quota accounting |
+| [10](10_llm_token_economics.md) | LLM Token Economics | Reserve → Retry → Reconcile pattern for token quotas; estimation strategies |
 
 ---
 
@@ -139,6 +141,14 @@ async def call_api(payload: dict):
 
 1. Review Parts 1-5
 2. Read [Advanced Patterns](06_advanced_patterns.md) — circuit breakers, etc.
+
+### For Distributed / Multi-Pod Systems
+
+1. Review Part 4 (Kubernetes) and Part 5 (Production Architecture)
+2. Read [Distributed Admission Control](09_distributed_admission_control.md) — Redis as the single source of truth, atomic Lua admission, the "Redis + if statements" pattern that replaces in-process limiters
+3. For LLM workloads, also read [LLM Token Economics](10_llm_token_economics.md) — Reserve → Retry → Reconcile
+
+> **Note**: Parts 1–3 describe the **transport layer** (sockets, timeouts, in-process semaphores). Part 9 describes the **admission layer** (cluster-wide Redis-backed checks). Real systems need both. If you only read parts 1–3, you'll have a single-pod story that breaks when you scale out.
 
 ---
 

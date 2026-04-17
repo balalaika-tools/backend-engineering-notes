@@ -323,12 +323,11 @@ class APIPayload(BaseModel):
 ### Validator Execution Order
 
 ```
-1. mode="before" field validators (in field order)
-2. Type parsing / coercion
-3. mode="after" field validators (in field order)
-4. mode="before" model validator
-   → (only runs before ALL field validation in mode="before")
-5. mode="after" model validator
+1. mode="before" model validator  (runs on the raw input dict)
+2. mode="before" field validators (in field declaration order)
+3. Type parsing / coercion
+4. mode="after"  field validators (in field declaration order)
+5. mode="after"  model validator  (runs on the fully-built model)
 ```
 
 Important: `mode="after"` field validators run in **field declaration order**, not alphabetical order. If field `b` depends on field `a`, declare `a` first.

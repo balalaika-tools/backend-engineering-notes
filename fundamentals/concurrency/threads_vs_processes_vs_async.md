@@ -223,15 +223,16 @@ Rule:
 
 ## Future Note (No-GIL Python)
 
-Python 3.13 introduces **experimental free-threading**:
+Python 3.13 introduced an **experimental free-threaded build** (PEP 703, opt-in via the `python3.13t` binary / `--disable-gil`):
 
+* In the free-threaded build, threads *can* execute Python bytecode in parallel
 * Threads *may* eventually replace processes for CPU-bound work
-* Not production-ready yet
-* Ecosystem still adapting
+* Still experimental — the default CPython build keeps the GIL
+* Ecosystem (C extensions) still adapting
 
 For now:
 
-* **Multiprocessing is the correct choice for CPU-bound Python**
+* **Multiprocessing is the correct choice for CPU-bound Python** on the default (GIL) build
 
 ---
 

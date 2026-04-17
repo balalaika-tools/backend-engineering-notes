@@ -295,11 +295,11 @@ except asyncio.TimeoutError:
 ### Size Relationships
 
 ```
-connect < pool < write < read
+connect ≤ pool ≤ write ≤ read
      5s     5s     10s    30s
 
-call_timeout > max(client timeouts)
-       30s   >    30s (read)
+call_timeout ≥ max(client timeouts)
+       30s   ≥    30s (read)
 
 sla_timeout > call_timeout × max_retries
       60s   >    30s × 2 (with backoff)

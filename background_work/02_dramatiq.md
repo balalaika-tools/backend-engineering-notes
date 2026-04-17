@@ -63,10 +63,12 @@ from dramatiq.brokers.redis import RedisBroker
 broker = RedisBroker(url="redis://localhost:6379/0")
 dramatiq.set_broker(broker)
 
-# With connection options
+# With explicit middleware (overrides defaults — usually you extend rather than replace)
+from dramatiq.middleware import default_middleware
+
 broker = RedisBroker(
     url="redis://localhost:6379/0",
-    middleware=dramatiq.broker.default_middleware,
+    middleware=[m() for m in default_middleware],
 )
 dramatiq.set_broker(broker)
 ```
@@ -141,7 +143,7 @@ Dramatiq retries failed actors automatically. The default middleware uses **expo
 ### Default Retry Behavior
 
 ```python
-@dramatiq.actor  # max_retries defaults to broker-level setting (typically unlimited)
+@dramatiq.actor  # max_retries defaults to the Retries middleware setting (20)
 def flaky_task():
     call_unreliable_api()
 ```

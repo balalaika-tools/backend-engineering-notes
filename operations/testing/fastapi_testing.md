@@ -94,7 +94,7 @@ project/
 
 ```toml
 [tool.pytest.ini_options]
-asyncio_mode = "auto"        # no need for @pytest.mark.anyio on every test
+asyncio_mode = "auto"        # no need for @pytest.mark.asyncio on every test
 testpaths = ["tests"]
 ```
 
@@ -137,7 +137,7 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_read_root():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -307,7 +307,7 @@ Without `asyncio_mode = "auto"`:
 
 ```python
 # Must decorate every async test
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_async_endpoint():
     ...
 ```
@@ -421,10 +421,14 @@ async def async_db_session():
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    async with AsyncTestingSession() as session:
-        async with session.begin():
+    # Open a connection-level transaction and let every session op nest inside
+    # a SAVEPOINT, so a single rollback at the end always resets the state —
+    # even if the test called commit().
+    async with async_engine.connect() as conn:
+        trans = await conn.begin()
+        async with AsyncTestingSession(bind=conn, join_transaction_mode="create_savepoint") as session:
             yield session
-            await session.rollback()
+        await trans.rollback()
 
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -986,7 +990,7 @@ A realistic test file that combines all the patterns:
 import pytest
 from httpx import AsyncClient
 
-pytestmark = pytest.mark.anyio  # apply to all tests in this module
+pytestmark = pytest.mark.asyncio  # apply to all tests in this module
 
 
 class TestCreateUser:

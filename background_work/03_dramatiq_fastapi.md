@@ -517,10 +517,15 @@ import dramatiq
 import pathlib
 
 class HealthCheckMiddleware(dramatiq.Middleware):
+    def after_worker_boot(self, broker, worker):
+        pathlib.Path("/tmp/dramatiq-healthy").touch()
+
     def after_process_message(self, broker, message, *, result=None, exception=None):
         pathlib.Path("/tmp/dramatiq-healthy").touch()
 
-# Kubernetes liveness probe:
+# Note: this file is only refreshed when messages are processed. An idle worker
+# won't update it — pair with a liveness probe that checks mtime is recent, or
+# add a periodic heartbeat thread. Kubernetes liveness probe (example):
 # exec:
 #   command: ["test", "-f", "/tmp/dramatiq-healthy"]
 ```

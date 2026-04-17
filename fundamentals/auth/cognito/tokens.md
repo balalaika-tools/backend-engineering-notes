@@ -63,7 +63,7 @@ Used to authorize API calls. Less about identity, more about permissions and sco
 
 Key differences from IdToken:
 - Has `scope` instead of user attributes
-- `aud` is absent — `client_id` is there instead
+- `client_id` is always present; `aud` is absent for plain app-client tokens, but **is** set to the resource-server identifier when the token is issued for a resource server (e.g. `api.myapp.com`)
 - `token_use` is `"access"`
 - No PII (email, name) — just authorization data
 
@@ -302,11 +302,14 @@ cognito_client.admin_user_global_sign_out(
     UserPoolId=pool_id,
     Username='jane@example.com',
 )
-# Signs the user out of all sessions — but existing tokens still work until expiry.
-# For immediate revocation, enable Advanced Security and use token revocation.
+# Invalidates all of the user's refresh tokens and revokes access/id tokens
+# for calls made against Cognito's own APIs (e.g. GetUser, UpdateUserAttributes).
+# Access/id tokens presented to *your* backend keep passing JWT signature checks
+# until they expire — your API must check a deny-list (or the jti against a revocation store)
+# if you need immediate cutoff for downstream APIs.
 ```
 
-**Enable token revocation on a client:**
+**Enable token revocation on a client** (this is the default for app clients created since mid-2021, but worth confirming on older pools):
 ```python
 cognito_client.update_user_pool_client(
     UserPoolId=pool_id,

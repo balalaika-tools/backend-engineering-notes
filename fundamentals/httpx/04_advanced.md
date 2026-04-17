@@ -334,25 +334,25 @@ import structlog
 logger = structlog.get_logger()
 
 
-async def create_production_client() -> httpx.AsyncClient:
+def create_production_client() -> httpx.AsyncClient:
     """
     Create a production-configured HTTPX client.
     """
-    
+
     async def log_request(request):
         logger.debug(
             "http_request",
             method=request.method,
             url=str(request.url),
         )
-    
+
     async def log_response(response):
         logger.debug(
             "http_response",
             status_code=response.status_code,
             url=str(response.url),
         )
-    
+
     return httpx.AsyncClient(
         limits=httpx.Limits(
             max_connections=50,
@@ -373,14 +373,14 @@ async def create_production_client() -> httpx.AsyncClient:
 
 
 # Usage
-client = await create_production_client()
-
-try:
-    response = await client.get("https://api.example.com/data")
-    response.raise_for_status()
-    return response.json()
-finally:
-    await client.aclose()
+async def fetch_data():
+    client = create_production_client()
+    try:
+        response = await client.get("https://api.example.com/data")
+        response.raise_for_status()
+        return response.json()
+    finally:
+        await client.aclose()
 ```
 
 ---

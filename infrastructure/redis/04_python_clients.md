@@ -77,8 +77,8 @@ value = await r.get("key")  # "value"
 # From URL
 r = aioredis.Redis.from_url("redis://localhost:6379/0", decode_responses=True)
 
-# Always close when done
-await r.close()
+# Always close when done (use aclose() in redis-py 5.x; close() is deprecated)
+await r.aclose()
 ```
 
 > **The async client is not thread-safe.** Create one client per asyncio event loop. In FastAPI, this means one client for the whole application (since FastAPI runs one event loop).
@@ -139,7 +139,7 @@ r = aioredis.Redis(connection_pool=pool)
 await r.get("key")
 
 # Clean up
-await r.close()
+await r.aclose()
 await pool.disconnect()
 ```
 
@@ -293,7 +293,7 @@ async def lifespan(app: FastAPI):
     )
     yield
     # Shutdown: close connections
-    await app.state.redis.close()
+    await app.state.redis.aclose()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -325,13 +325,15 @@ async def set_cached(key: str, value: str, r: aioredis.Redis = Depends(get_redis
 ### Health Check
 
 ```python
+from fastapi import HTTPException
+
 @app.get("/health")
 async def health(r: aioredis.Redis = Depends(get_redis)):
     try:
         await r.ping()
         return {"redis": "ok"}
     except redis.ConnectionError:
-        return {"redis": "down"}, 503
+        raise HTTPException(status_code=503, detail={"redis": "down"})
 ```
 
 ---

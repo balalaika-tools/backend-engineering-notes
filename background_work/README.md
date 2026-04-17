@@ -27,7 +27,7 @@ This section answers the **"what tool should I use?"** question. For the **"how 
 
 | Need | Tool |
 |------|------|
-| Fire-and-forget after response (non-critical, <2s) | FastAPI `BackgroundTasks` |
+| Fire-and-forget after response (non-critical, <5s) | FastAPI `BackgroundTasks` |
 | Reliable isolated execution, retries, heavy work | Dramatiq |
 | Periodic/scheduled jobs (single instance) | APScheduler |
 | Periodic jobs across multiple instances | APScheduler + Redis lock, or APScheduler triggering Dramatiq |

@@ -354,6 +354,9 @@ This:
 
 ## 🔹 ThreadPoolExecutor (No CPU Speedup)
 ```python
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
+
 pool = ThreadPoolExecutor(max_workers=10)
 
 def crunch_blocking(n):
@@ -364,7 +367,7 @@ def crunch_blocking(n):
  
 async def crunch_async(n):
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, crunch_blocking, n)
+    return await loop.run_in_executor(pool, crunch_blocking, n)
 
 # later do --> pool.shutdown(wait=True)
  ```

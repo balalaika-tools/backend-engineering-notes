@@ -267,6 +267,7 @@ These must be created **once** at app startup, **not per-request**.
 ```python
 import asyncio
 from contextlib import asynccontextmanager
+from typing import Optional
 from aiolimiter import AsyncLimiter
 import httpx
 from fastapi import FastAPI
@@ -274,7 +275,7 @@ from fastapi import FastAPI
 # GLOBAL primitives — created once
 llm_sem = asyncio.Semaphore(50)
 llm_rate = AsyncLimiter(60, 60)
-client: httpx.AsyncClient | None = None
+client: Optional[httpx.AsyncClient] = None
 
 
 @asynccontextmanager
@@ -288,7 +289,7 @@ async def lifespan(app: FastAPI):
         timeout=httpx.Timeout(
             connect=5.0,
             read=30.0,
-            write=5.0,
+            write=10.0,
             pool=5.0,
         )
     )

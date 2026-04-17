@@ -238,6 +238,7 @@ def seconds_until_expiry(token: str) -> float:
 ```python
 import jwt
 from jwt import PyJWKClient
+from typing import Optional
 
 # Initialize once at startup — handles caching internally
 jwks_client = PyJWKClient(
@@ -251,8 +252,8 @@ def validate_token(
     token: str,
     *,
     issuer: str,
-    audience: str | None = None,
-    algorithms: list[str] | None = None,
+    audience: Optional[str] = None,
+    algorithms: Optional[list[str]] = None,
 ) -> dict:
     """
     Validate a JWT and return the decoded claims.
@@ -280,12 +281,13 @@ def validate_token(
 ```python
 from jose import jwk, jwt as jose_jwt
 from jose.utils import base64url_decode
+from typing import Optional
 import urllib.request
 import json
 import time
 
 
-_jwks_cache: dict | None = None
+_jwks_cache: Optional[dict] = None
 
 
 def get_jwks(jwks_url: str) -> dict:
@@ -301,8 +303,8 @@ def validate_token(
     *,
     jwks_url: str,
     issuer: str,
-    audience: str | None = None,
-    token_use: str | None = None,  # e.g. "access" or "id" (Cognito-specific)
+    audience: Optional[str] = None,
+    token_use: Optional[str] = None,  # e.g. "access" or "id" (Cognito-specific)
 ) -> dict:
     headers = jose_jwt.get_unverified_headers(token)
     kid = headers["kid"]

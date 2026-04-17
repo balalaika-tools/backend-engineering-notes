@@ -123,7 +123,7 @@ async function submitAndWait(payload) {
 ### Edge Cases
 
 - **Client disconnects and reconnects**: Must handle "catch-up" — on reconnect, send current status and any missed updates. Store updates in Redis sorted set or similar.
-- **Load balancer timeout**: ALB has a 4000s idle timeout for WebSockets. Send periodic pings.
+- **Load balancer timeout**: AWS ALB's idle timeout defaults to 60s and is configurable up to 4000s. Send periodic pings to keep the connection alive.
 - **Multiple tabs**: Same job, multiple WebSocket connections. Use Redis pub/sub to fan out.
 
 ---
@@ -370,7 +370,7 @@ Client                              Server                      Worker
 
 ```python
 @app.post("/jobs")
-async def create_job(payload: dict, callback_url: str | None = None):
+async def create_job(payload: dict, callback_url: Optional[str] = None):
     job = await store_job(payload, callback_url=callback_url)
     await dispatch_to_worker(job)
     return {"job_id": job.id}
@@ -507,7 +507,7 @@ async def wait_for_result_safe(redis_client: redis.Redis, job_id: str):
 @app.post("/jobs")
 async def create_job(
     payload: dict,
-    callback_url: str | None = None,   # Webhook delivery
+    callback_url: Optional[str] = None,   # Webhook delivery
     # Client can also:
     # - Connect to /ws/jobs/{id} for WebSocket
     # - GET /jobs/{id}/stream for SSE

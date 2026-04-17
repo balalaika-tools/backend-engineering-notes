@@ -114,6 +114,8 @@ python-backend-notes/
 | [06 — Advanced Patterns](fundamentals/fastapi/Safe_and_Scalable_API_calls/06_advanced_patterns.md) | Circuit breakers, priority queues |
 | [07 — Streaming Patterns](fundamentals/fastapi/Safe_and_Scalable_API_calls/07_streaming_patterns.md) | SSE, streaming timeouts |
 | [08 — Streaming Advanced](fundamentals/fastapi/Safe_and_Scalable_API_calls/08_streaming_advanced.md) | Multi-stream, aggregation |
+| [09 — Distributed Admission Control](fundamentals/fastapi/Safe_and_Scalable_API_calls/09_distributed_admission_control.md) | Cross-pod concurrency limits, Redis-backed atomic limiters |
+| [10 — LLM Token Economics](fundamentals/fastapi/Safe_and_Scalable_API_calls/10_llm_token_economics.md) | Per-tenant budgets, token accounting, cost-aware rate limits |
 
 #### Database — [full README](fundamentals/database/README.md)
 
@@ -161,6 +163,7 @@ python-backend-notes/
 | [02 — Pub/Sub & Streams](infrastructure/redis/02_pubsub_and_streams.md) | Fire-and-forget pub/sub, durable streams, consumer groups |
 | [03 — Caching Patterns](infrastructure/redis/03_caching_patterns.md) | Cache-aside, write-through, TTL, eviction, stampede prevention |
 | [04 — Python Clients](infrastructure/redis/04_python_clients.md) | redis-py sync/async, connection pooling, pipelines, FastAPI integration |
+| [05 — Rate Limiting](infrastructure/redis/05_rate_limiting.md) | Token bucket, sliding/fixed window, atomic Lua scripts |
 
 ---
 
@@ -237,4 +240,4 @@ python-backend-notes/
 
 ---
 
-*Last updated: March 2026*
+*Last updated: April 2026*

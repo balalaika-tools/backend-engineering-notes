@@ -20,6 +20,7 @@ Redis is an **in-memory data structure store** that serves data over TCP. It is 
 | [02_pubsub_and_streams.md](02_pubsub_and_streams.md) | Pub/Sub & Streams | Fire-and-forget Pub/Sub, durable Streams with consumer groups, comparison with Kafka |
 | [03_caching_patterns.md](03_caching_patterns.md) | Caching Patterns | Cache-aside, write-through, write-behind, TTL strategies, eviction policies, cache stampede |
 | [04_python_clients.md](04_python_clients.md) | Python Redis Clients | redis-py sync and async, connection pooling, pipelines, transactions, FastAPI integration |
+| [05_rate_limiting.md](05_rate_limiting.md) | Rate Limiting Algorithms | Fixed window, sliding log, sliding counter (Cloudflare-style), token bucket — with atomic Lua scripts |
 
 ---
 
@@ -34,6 +35,8 @@ Redis is an **in-memory data structure store** that serves data over TCP. It is 
 **Integrating with FastAPI** → Read `04` for connection pooling, dependency injection, and async client patterns.
 
 **Performance / production concerns** → Check eviction policies in `03`, connection pooling in `04`.
+
+**Rate limiting / quota enforcement** → Read `05` for the four canonical algorithms. The application-layer architecture that consumes them lives in [Safe and Scalable API Calls / 09](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/09_distributed_admission_control.md).
 
 ---
 

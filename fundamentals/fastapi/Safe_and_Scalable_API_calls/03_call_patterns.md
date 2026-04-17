@@ -126,14 +126,14 @@ async def call_llm(payload: dict):
 - 5xx responses (server errors)
 - Vendor slowness (`httpx.TimeoutException`)
 - Call timeout (`asyncio.TimeoutError` after first attempt)
+- 429 responses — retry **only after** honoring `Retry-After` (see §6)
 
 ### ❌ Do NOT Retry These
 
 - Queue timeouts (system is overloaded)
-- 4xx responses (client errors)
+- 4xx responses other than 429 (client errors)
 - Authentication errors (401, 403)
 - Validation errors (400, 422)
-- Rate limit responses (429) — use backoff instead
 
 **Rule of thumb**:
 

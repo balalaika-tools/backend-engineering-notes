@@ -296,12 +296,14 @@ A single endpoint can use all parameter types:
 def update_item(
     user_id: int,                          # path
     item_id: int,                          # path
-    q: str = None,                         # query (optional)
     item: Item,                            # body
     authorization: str = Header(...),      # header
+    q: Optional[str] = None,               # query (optional)
 ):
     ...
 ```
+
+Non-default arguments must come before defaulted ones (a general Python rule), so place `q` last.
 
 FastAPI correctly routes each parameter based on the rules above.
 

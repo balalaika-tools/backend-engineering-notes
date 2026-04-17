@@ -496,14 +496,15 @@ async def stream_chat(request: Request, payload: dict):
 ```python
 import time
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
 class StreamMetrics:
     start_time: float
-    first_chunk_time: float | None = None
+    first_chunk_time: Optional[float] = None
     chunk_count: int = 0
-    error: str | None = None
+    error: Optional[str] = None
     client_disconnected: bool = False
 
 

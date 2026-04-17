@@ -198,7 +198,7 @@ Raw WebSocket gives you a pipe. You need structure on top — message types, req
 ```python
 from pydantic import BaseModel
 from typing import Literal
-from datetime import datetime
+from datetime import datetime, timezone
 
 class IncomingMessage(BaseModel):
     type: str
@@ -217,7 +217,7 @@ class OutgoingMessage(BaseModel):
             type=type,
             payload=payload,
             request_id=request_id,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
         )
 ```
 
@@ -522,7 +522,7 @@ More secure — the token never appears in WebSocket URLs or logs.
 
 ```python
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 
 # In-memory ticket store (use Redis in production)
@@ -534,7 +534,7 @@ async def create_ws_ticket(user: dict = Depends(get_current_user)):
     ticket = secrets.token_urlsafe(32)
     _tickets[ticket] = {
         "user": user,
-        "expires": datetime.utcnow() + timedelta(seconds=30),
+        "expires": datetime.now(timezone.utc) + timedelta(seconds=30),
     }
     return {"ticket": ticket}
 
@@ -547,7 +547,7 @@ async def validate_ticket(websocket: WebSocket) -> dict:
 
     entry = _tickets.pop(ticket)  # one-time use
 
-    if datetime.utcnow() > entry["expires"]:
+    if datetime.now(timezone.utc) > entry["expires"]:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
 

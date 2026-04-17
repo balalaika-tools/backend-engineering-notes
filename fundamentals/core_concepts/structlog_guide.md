@@ -1,6 +1,6 @@
 # Structured Logging with structlog
 
-A production guide to structured logging in Python. This picks up where [logging.md](logging.md) leaves off -- stdlib logging gets you started, structlog gets you to production.
+A production guide to structured logging in Python. This picks up where [logging/](logging/README.md) leaves off -- stdlib logging gets you started, structlog gets you to production.
 
 ---
 
@@ -65,6 +65,7 @@ pip install structlog
 
 ```python
 # app/logging_config.py
+import logging
 import structlog
 
 def setup_logging():

@@ -216,15 +216,16 @@ __table_args__ = (CheckConstraint("age >= 0", name="ck_users_age"),)
 
 ```python
 import uuid
-from sqlalchemy import UUID, JSONB, ARRAY, Integer
+from sqlalchemy import String, Numeric
+from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 
 # UUID primary key
 id: Mapped[uuid.UUID] = mapped_column(
     UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
 )
 
-# JSONB
-metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+# JSONB — avoid the attribute name `metadata`, it's reserved on DeclarativeBase
+payload: Mapped[dict] = mapped_column(JSONB, default=dict)
 
 # Array
 tags: Mapped[list[str]] = mapped_column(ARRAY(String))
@@ -232,6 +233,8 @@ tags: Mapped[list[str]] = mapped_column(ARRAY(String))
 # Numeric (exact decimal for money)
 price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
 ```
+
+`JSONB` and `ARRAY` are PostgreSQL-specific — import them from `sqlalchemy.dialects.postgresql`, not the top-level `sqlalchemy` package.
 
 ### Table-Level Constraints and Indexes
 
@@ -320,7 +323,7 @@ class Tag(Base):
 | `"selectin"` | Always loads via SELECT IN | ✅ Auto-eager (use carefully) |
 | `"joined"` | Always loads via JOIN | ✅ Auto-eager (use carefully) |
 | `"subquery"` | Loads via subquery | ✅ Auto-eager |
-| `"dynamic"` | Returns query (deprecated 2.0) | ❌ Don't use |
+| `"dynamic"` | Returns a Query object (legacy; not supported on async) | ❌ Don't use |
 | `"write_only"` | Write-only relationship | ✅ For large collections |
 
 **For async: always use `lazy="raise"`** as the default. Load explicitly with `selectinload()` or `joinedload()` when needed.

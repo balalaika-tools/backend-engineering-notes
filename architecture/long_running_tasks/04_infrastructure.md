@@ -8,7 +8,7 @@ Concrete tools and services that implement the patterns from Parts 1–3. For ea
 
 The Swiss Army knife. Redis can serve as the queue, the result store, the heartbeat store, and the pub/sub notification layer — all at once.
 
-### As a Task Queue (Redis Lists + BRPOPLPUSH)
+### As a Task Queue (Redis Lists + BLMOVE)
 
 ```python
 import redis.asyncio as redis
@@ -17,8 +17,9 @@ import redis.asyncio as redis
 await r.lpush("tasks", json.dumps({"job_id": "abc", "payload": {...}}))
 
 # Consumer (worker): blocking pop with reliability
-# BRPOPLPUSH atomically pops from "tasks" and pushes to "processing"
-raw = await r.brpoplpush("tasks", "processing", timeout=30)
+# BLMOVE atomically pops from "tasks" (RIGHT) and pushes to "processing" (LEFT).
+# BRPOPLPUSH is the older equivalent, deprecated since Redis 6.2.0.
+raw = await r.blmove("tasks", "processing", timeout=30, src="RIGHT", dest="LEFT")
 task = json.loads(raw)
 
 # After processing, remove from "processing"
@@ -97,7 +98,7 @@ await r.xack("task_stream", "workers", message_id)
 
 | Use Case | Redis Feature | Alternative |
 |----------|---------------|-------------|
-| Simple task queue | Lists + BRPOPLPUSH | SQS, RabbitMQ |
+| Simple task queue | Lists + BLMOVE | SQS, RabbitMQ |
 | Task queue with consumer groups | Streams | Kafka, RabbitMQ |
 | Result cache | SET with TTL | S3, DynamoDB |
 | Heartbeat tracking | SET with TTL | DynamoDB, PostgreSQL |
@@ -189,7 +190,7 @@ sqs.send_message(
 ```
 
 FIFO queues guarantee:
-- **Exactly-once processing** (within the deduplication window)
+- **Exactly-once delivery** within the 5-minute deduplication interval (processing still must be idempotent to survive consumer crashes after receive but before delete)
 - **Ordered delivery** within a message group
 - **One in-flight message per group** — natural concurrency limiter
 
@@ -216,7 +217,7 @@ The ESM automatically:
 
 ### When to Use SQS
 
-**Pick SQS when:** You're on AWS, want zero ops, need reliable delivery, and your throughput is moderate (3K messages/s for FIFO, effectively unlimited for Standard).
+**Pick SQS when:** You're on AWS, want zero ops, need reliable delivery, and your throughput is moderate (default FIFO: 300 msg/s per API action, or 3,000/s with batching; high-throughput FIFO mode scales much higher; Standard queues are effectively unlimited).
 
 **Avoid SQS when:** You need message replay, complex routing, or you're not on AWS.
 

@@ -262,7 +262,8 @@ CMD ["gunicorn", "app.main:app", \
 
 ```yaml
 # docker-compose.yml
-version: "3.9"
+# Compose V2 ignores the top-level `version:` key (and warns if present) —
+# omit it.
 
 services:
   app:

@@ -2,6 +2,8 @@
 
 > **Principle**: Per-pod rate limiters are process-local. Vendor limits are global.
 
+> **See also**: [Part 9 — Distributed Admission Control](09_distributed_admission_control.md) for the full Redis-centric pattern. This file establishes *why* per-pod limiters fail at scale; Part 9 covers the production-grade replacement (atomic Lua admission scripts, key taxonomy, retries-vs-quota accounting). The `GlobalVendorRateLimiter` shown below is a minimal example of the broader admission controller pattern.
+
 ---
 
 ## 1. The Fundamental Problem

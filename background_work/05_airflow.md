@@ -184,7 +184,7 @@ user_etl()
 For cases where you need non-Python operators or prefer explicit wiring:
 
 ```python
-from datetime import datetime
+from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
@@ -245,9 +245,10 @@ a >> [b, c, d]         # a → b, a → c, a → d
 # Fan-in
 [b, c, d] >> e         # b → e, c → e, d → e
 
-# Full diamond
-a >> [b, c] >> d       # WRONG — this sets [b, c] >> d but not a >> [b, c]
-# Correct:
+# Full diamond — chaining works because `>>` returns the right-hand side
+a >> [b, c] >> d       # a → b, a → c, b → d, c → d
+
+# The expanded equivalent:
 a >> [b, c]
 [b, c] >> d
 ```
