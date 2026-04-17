@@ -451,6 +451,25 @@ async def get_with_lock(
         return await fetch_fn()
 ```
 
+### Aside — Single-Node `SET NX` vs RedLock
+
+The mutex above is a **single-node** Redis lock: one Redis instance, one `SET NX`, one TTL. That's fine when losing the lock is a cache-stampede nuisance, not a correctness issue — the fallback path (fetch again) is safe.
+
+For **distributed mutual exclusion** — "only one worker runs this side effect at a time, across the whole cluster" — there's a tempting algorithm called **RedLock** that uses multiple Redis instances. **Do not adopt RedLock without reading Martin Kleppmann's critique (["How to do distributed locking", 2016](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html)) and antirez's reply.** The short version of the dispute:
+
+- RedLock assumes you can measure elapsed time accurately. **You cannot on a virtualized host** — the scheduler can pause a process for seconds. A process that acquired a lock can be paused until the TTL expires, resume, and happily do its work while another holder is also active.
+- A GC pause in your application has the same effect. Between acquiring and doing the work, the JVM / Python can stall long enough for the lock to expire.
+- Mitigation requires **fencing tokens** — the lock returns a monotonically-increasing token; every write to the protected resource includes the token; the resource rejects writes with a stale token. This means the resource itself participates in mutual exclusion; the "lock" is just a hint.
+
+**Practical guidance for this corpus:**
+
+- For **cache stampedes** (this section): single-node `SET NX` is fine; the downside is "more DB queries," not correctness.
+- For **idempotency keys** (see [`Safe_and_Scalable_API_calls/11_idempotency.md`](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/11_idempotency.md)): use a unique constraint in the database, not a Redis lock.
+- For **"only one worker should run this cron"**: a single-node Redis lock with a short TTL and idempotent work is usually fine. If duplicate execution would be catastrophic, use a database-backed lock or a proper leader-election primitive (etcd, ZooKeeper, Consul).
+- For **cross-region mutual exclusion where correctness matters**: Redis is the wrong tool. Use Postgres advisory locks, or a consensus system (etcd, ZooKeeper).
+
+If you want a ready-made Redis lock, `redis-py` ships one: `r.lock(name, timeout=10, blocking_timeout=5)`. It is a single-node lock, not RedLock — fine for the use cases above, not a substitute for a real distributed-lock primitive.
+
 ### Solution 2: Probabilistic Early Expiration (XFetch)
 
 Refresh the cache **before** it expires. Each request has a small probability of refreshing early, increasing as TTL approaches 0:

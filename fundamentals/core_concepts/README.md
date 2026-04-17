@@ -12,6 +12,8 @@
 
 | File | Topic | Description |
 |------|-------|-------------|
+| [typing.md](typing.md) | Typing | `Optional` (preferred), `Literal`, `TypedDict`, `TypeVar`, `Protocol`, Callable |
+| [context_managers.md](context_managers.md) | Context Managers | `with` / `async with`, `@contextmanager`, `ExitStack`, pitfalls |
 | [decorators.md](decorators.md) | Decorators | `@` syntax, `functools.wraps`, parameterized decorators |
 | [exceptions.md](exceptions.md) | Exceptions | Propagation, `raise` variants, `raise from`, production patterns |
 | [logging/](logging/README.md) | Logging | Logger hierarchy, `propagate`, handler/formatter pipeline, per-module vs universal |
@@ -23,12 +25,14 @@
 
 ## Reading Order
 
-1. **Decorators** — understand how functions wrap functions
-2. **Exceptions** — understand error propagation and handling
-3. **Logging** — stdlib logging: basics → hierarchy → handlers → patterns
-4. **Structured Logging** — upgrade to structlog for production
-5. **Configuration** — manage settings and secrets
-6. **ContextVars** — request-scoped state that flows through async code
+1. **Typing** — the vocabulary every other file uses
+2. **Context Managers** — how `with` / `async with` work (used by DB sessions, HTTP clients, lifespan, …)
+3. **Decorators** — understand how functions wrap functions
+4. **Exceptions** — understand error propagation and handling
+5. **Logging** — stdlib logging: basics → hierarchy → handlers → patterns
+6. **Structured Logging** — upgrade to structlog for production
+7. **Configuration** — manage settings and secrets
+8. **ContextVars** — request-scoped state that flows through async code
 
 ---
 

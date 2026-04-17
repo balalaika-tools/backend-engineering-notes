@@ -385,6 +385,70 @@ async def fetch_data():
 
 ---
 
+## TLS / SSL Configuration
+
+HTTPX uses the system's default CA bundle (via `certifi`) and verifies certificates by default. Most of the time you don't have to touch it. The times you do:
+
+### Custom CA bundle
+
+Internal services that use a private CA (self-signed, corporate root, Let's Encrypt staging) aren't in `certifi`'s default bundle.
+
+```python
+client = httpx.AsyncClient(verify="/path/to/ca-bundle.pem")
+
+# Or point to a directory of PEM files (OpenSSL-style)
+client = httpx.AsyncClient(verify="/etc/ssl/custom-cas/")
+```
+
+Environment override without changing code: `SSL_CERT_FILE=/path/to/bundle.pem`.
+
+### Disabling verification — only for debugging
+
+```python
+client = httpx.AsyncClient(verify=False)   # NEVER in production
+```
+
+This disables certificate verification entirely — you're vulnerable to MITM. HTTPX logs a warning when you do this. If the problem is "my internal CA isn't trusted," fix it with the custom CA bundle above; don't reach for `verify=False`.
+
+### Mutual TLS (client certificates)
+
+When the server authenticates the client via cert (common in internal / zero-trust setups):
+
+```python
+client = httpx.AsyncClient(
+    cert=("/path/to/client.crt", "/path/to/client.key"),
+)
+
+# Or a single PEM file containing both cert and key
+client = httpx.AsyncClient(cert="/path/to/client-combined.pem")
+
+# With a password-protected key
+client = httpx.AsyncClient(cert=("/path/to/client.crt", "/path/to/client.key", "keypassword"))
+```
+
+### Pinning / custom SSL context
+
+For full control (cipher suites, TLS version floor, alternative trust stores), pass your own `ssl.SSLContext`:
+
+```python
+import ssl
+
+ctx = ssl.create_default_context(cafile="/path/to/ca-bundle.pem")
+ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+ctx.set_ciphers("ECDHE+AESGCM:!aNULL")
+
+client = httpx.AsyncClient(verify=ctx)
+```
+
+### Common pitfalls
+
+- **Certificate errors in Docker** — some base images ship an outdated CA bundle. The `certifi` package that HTTPX uses is usually fine; if not, `apt-get install ca-certificates` in the image.
+- **Connecting to an IP instead of a hostname** — certs are issued for hostnames. Use the hostname and set up DNS; avoid `verify=False` as a workaround.
+- **Clock skew** — a large clock drift on your host can fail cert validation even when the cert is valid. Check NTP sync if validation fails in weird ways.
+- **HTTP/2 over TLS** — `http2=True` requires ALPN negotiation to pick h2; that only works over TLS (HTTPS), not plain HTTP.
+
+---
+
 ## Summary
 
 | Feature | When to use |
@@ -393,6 +457,7 @@ async def fetch_data():
 | Streaming | Large responses, memory constraints |
 | Transport retries | Simple network resilience |
 | Event hooks | Logging, metrics, tracing |
+| Custom CA / mTLS | Internal services, zero-trust networks |
 
 **Key principles**:
 
@@ -400,6 +465,7 @@ async def fetch_data():
 2. Streaming enables bounded memory usage
 3. Error handling should be specific to failure type
 4. Production clients need explicit configuration
+5. Never disable TLS verification in production — fix the trust chain instead
 
 ---
 

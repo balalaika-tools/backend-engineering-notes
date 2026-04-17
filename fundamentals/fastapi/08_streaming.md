@@ -1,6 +1,8 @@
 # Streaming in FastAPI
 
-How streaming works at the HTTP level, and how FastAPI exposes it. This guide covers **mechanics** — the fundamental building blocks. For production concurrency patterns (semaphores, circuit breakers, admission control), see the [Safe and Scalable API Calls streaming guides](Safe_and_Scalable_API_calls/07_streaming_patterns.md).
+How streaming works at the HTTP level, and how FastAPI exposes it. This guide covers **mechanics** — the fundamental building blocks. For production concurrency patterns (semaphores, circuit breakers, admission control), see the Safe and Scalable API Calls streaming guides:
+> - [07_streaming_patterns.md](./Safe_and_Scalable_API_calls/07_streaming_patterns.md) — SSE, streaming timeouts, semaphore duration
+> - [08_streaming_advanced.md](./Safe_and_Scalable_API_calls/08_streaming_advanced.md) — multi-stream, aggregation, streaming circuit breakers
 
 ---
 

@@ -281,6 +281,8 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
 This is where FastAPI's dependency injection system makes auth elegant. You build a chain of dependencies that authenticate and authorize in clean, composable layers.
 
+> This section assumes familiarity with the DI patterns in [02_dependency_injection.md](./02_dependency_injection.md) — sub-dependencies, caching per request, and `Depends(...)` composition. The code below focuses on the JWT/auth-specific wiring only; the DI mechanics are identical.
+
 ### The `get_current_user` Dependency
 
 ```python
@@ -962,6 +964,8 @@ Auth endpoints (login, register, password reset) should **always** be rate-limit
 ---
 
 ## 12. Complete Example: Putting It All Together
+
+> The user registration models below use a Create/Response split (`UserIn`/`UserOut` or similar). For the reasoning behind that split — why you separate Create / Update / Response schemas, how to share a base, `model_config` for ORM mode — see [03_pydantic.md §10 Create/Update/Response Pattern](./03_pydantic.md#10-useful-patterns). The example here shows only the auth-specific delta (password hashing, never returning the hash).
 
 ```python
 import os

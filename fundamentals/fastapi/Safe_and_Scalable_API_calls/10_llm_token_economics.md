@@ -389,4 +389,78 @@ Stick to that and your quota dashboards will match reality. Deviate and you'll s
 
 ---
 
-**Back to**: [README](README.md) | **Previous**: [Part 9 — Distributed Admission Control](09_distributed_admission_control.md)
+## Cost Observability — What to Dashboard
+
+The Reserve → Retry → Reconcile pattern gives you the raw data for cost tracking. Turn it into operational visibility:
+
+### Per-request attribution
+
+Every call should emit a metric with **tenant**, **provider**, **model**, **input_tokens**, **output_tokens**, **cost_usd**, **success_bool**. In Prometheus:
+
+```python
+LLM_CALL_TOKENS = Histogram(
+    "llm_call_tokens",
+    "Tokens consumed per LLM call",
+    labelnames=["tenant", "provider", "model", "kind"],   # kind = input|output
+    buckets=[100, 500, 1000, 5000, 10000, 50000, 100000],
+)
+
+LLM_CALL_COST_USD = Counter(
+    "llm_call_cost_usd_total",
+    "Cumulative USD cost",
+    labelnames=["tenant", "provider", "model"],
+)
+
+
+def record_call(tenant: str, provider: str, model: str, usage: Usage, cost: float):
+    LLM_CALL_TOKENS.labels(tenant, provider, model, "input").observe(usage.input_tokens)
+    LLM_CALL_TOKENS.labels(tenant, provider, model, "output").observe(usage.output_tokens)
+    LLM_CALL_COST_USD.labels(tenant, provider, model).inc(cost)
+```
+
+With those two metrics you can graph cost per tenant, cost per feature (group by caller), cost per model — and catch the "one tenant is 90% of our spend" pattern before the invoice does.
+
+### Burn-rate SLO
+
+Treat your cost budget the way SRE treats error budget. If your monthly ceiling is `$X`, measure burn rate in dollars-per-hour and alert when you're on a trajectory to exceed the ceiling:
+
+```
+30d budget:            $10,000
+Current month spend:   $6,200 (at day 18/30)
+Budget remaining:      $3,800 for 12 days
+Burn rate (24h avg):   $280/day
+Projected to month-end: $6,200 + 12 × $280 = $9,560   OK
+```
+
+Multi-window burn-rate alerts work well: a 1-hour window that's 10x budget-pace fires fast for incidents; a 6-hour window that's 2x pace fires slower for sustained drift.
+
+### Retry Budgets — The Other Cost
+
+Retries multiply cost. A request with 3 retries costs 4x the base call. Without a budget, a pathological retry loop (retry everything on any error) silently triples your bill during an upstream outage.
+
+**A retry budget caps the ratio of retries to original calls.** Google SRE Book's classic formulation: "retries shall be no more than 10% of original request volume." Implementation:
+
+```python
+# Pseudocode — sliding window in Redis
+async def should_retry(endpoint: str) -> bool:
+    originals = await r.get(f"calls:originals:{endpoint}:1m") or 1
+    retries = await r.get(f"calls:retries:{endpoint}:1m") or 0
+    return int(retries) < 0.10 * int(originals)  # 10% ceiling
+
+
+async def call_with_budget(endpoint, fn):
+    await r.incr(f"calls:originals:{endpoint}:1m")
+    try:
+        return await fn()
+    except TransientError:
+        if not await should_retry(endpoint):
+            raise   # budget exhausted — fail fast, don't pile on
+        await r.incr(f"calls:retries:{endpoint}:1m")
+        return await fn()
+```
+
+When the upstream is healthy, retries are rare and budget is plentiful. When the upstream is degraded and retries are spiking, the budget clamps them — preventing a retry storm from amplifying the outage. This is the cost-side equivalent of a circuit breaker.
+
+---
+
+**Back to**: [README](README.md) | **Previous**: [Part 9 — Distributed Admission Control](09_distributed_admission_control.md) | **Next**: [Part 11 — Idempotency Keys](11_idempotency.md)

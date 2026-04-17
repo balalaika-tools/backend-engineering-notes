@@ -526,6 +526,49 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 Strategy A is more explicit and gives you finer control. Strategy B is convenient but hides when the commit happens.
 
+### Deadlocks and Lock Escalation
+
+Under concurrency, two transactions can each hold a lock the other needs. PostgreSQL detects this and aborts one with `DeadlockDetected` (`40P01`); the other proceeds. This is not a bug in Postgres — it is Postgres doing its job. The bug is almost always in *your* code: two transactions acquire locks on the same rows in different orders.
+
+```
+T1: UPDATE accounts WHERE id = 1 ... (acquires lock on row 1)
+T2: UPDATE accounts WHERE id = 2 ... (acquires lock on row 2)
+T1: UPDATE accounts WHERE id = 2 ... (waits for T2)
+T2: UPDATE accounts WHERE id = 1 ... (waits for T1 → deadlock)
+```
+
+**Primary mitigations:**
+
+1. **Order operations by primary key.** If every transaction touches rows in ascending `id` order, you cannot deadlock by definition — each transaction is ahead of or behind every other by lock order.
+2. **Use `SELECT ... FOR UPDATE` early in the transaction**, not mid-way. Acquiring the locks you'll need upfront makes the lock order explicit.
+3. **Short transactions.** Long transactions hold locks longer; longer hold = bigger window for conflicts.
+4. **Retry on deadlock.** A deadlock is a signal, not a crash — catch and retry with jitter. Dramatiq / Celery workers should already do this; HTTP handlers should do it once per request.
+
+```python
+from psycopg.errors import DeadlockDetected
+from sqlalchemy.exc import DBAPIError
+
+async def with_deadlock_retry(fn, *, max_attempts=3):
+    for attempt in range(max_attempts):
+        try:
+            return await fn()
+        except DBAPIError as e:
+            if isinstance(e.orig, DeadlockDetected) and attempt < max_attempts - 1:
+                await asyncio.sleep(0.05 * (2 ** attempt) * random.uniform(0.5, 1.5))
+                continue
+            raise
+```
+
+**Diagnosing in production:** when deadlocks show up, grep logs for the full Postgres error — it prints both sides of the conflict. Cross-reference with `pg_locks` and `pg_stat_activity`:
+
+```sql
+SELECT pid, state, wait_event_type, wait_event, query
+  FROM pg_stat_activity
+ WHERE state = 'active' AND wait_event_type = 'Lock';
+```
+
+**Lock escalation note:** unlike some databases, PostgreSQL does **not** escalate row locks to table locks. Every locked row is locked individually. That eliminates one class of surprises but means a `DELETE` touching millions of rows holds millions of row locks — still a problem, just a different one (`maintenance_work_mem`, `ShareUpdateExclusiveLock` contention with autovacuum).
+
 ---
 
 ## 7. Alembic Migrations

@@ -76,12 +76,12 @@ token_response = requests.post(token_url, data={
 
 ### 2. Client Credentials
 
-**Use for**: Machine-to-machine (M2M). No user is involved — one service authenticating to call another service.
+**Use for**: Machine-to-machine (M2M). No user is involved — your service authenticates directly to get a token.
 
 ```
-Service → Auth Server: POST with client_id + client_secret + scope
-Auth Server → Service: access_token (no refresh token)
-Service → Resource Server: Authorization: Bearer <access_token>
+Your service → Auth Server: POST with client_id + client_secret + scope
+Auth Server → Your service: access_token (no refresh token)
+Your service → Resource Server: Authorization: Bearer <access_token>
 ```
 
 ```python
@@ -111,10 +111,10 @@ Key facts:
 **Use for**: Silently getting new access tokens without user re-authentication.
 
 ```
-App stores refresh_token on login
+Your app stores refresh_token on login
 Access token expires (typically 1 hour)
-App → Auth Server: POST with refresh_token
-Auth Server → App: new access_token (+ new id_token)
+Your app → Auth Server: POST with refresh_token
+Auth Server → Your app: new access_token (+ new id_token)
 ```
 
 ```python
@@ -124,12 +124,15 @@ token_response = requests.post(
         "grant_type": "refresh_token",
         "refresh_token": stored_refresh_token,
         "client_id": client_id,
+        # Confidential clients must also send client_secret (or use HTTP Basic auth).
+        # Public clients (SPAs, mobile) omit it.
+        # "client_secret": client_secret,
     },
 )
 new_access_token = token_response.json()["access_token"]
 ```
 
-Refresh tokens are **opaque** (not JWTs) — only the auth server can read them. They are long-lived (days to months) and must be stored securely.
+Refresh tokens have **no format defined by the spec** — treat them as opaque. Providers may issue random strings, encrypted blobs, or even JWTs internally, but clients should never try to parse them. They are long-lived (days to months) and must be stored securely.
 
 ### 4. Device Code (Device Authorization)
 
@@ -146,7 +149,9 @@ Auth Server → Device (on next poll): access_token
 
 ### 5. Resource Owner Password (Deprecated)
 
-Sends username + password directly to the auth server. **Do not use** for new projects — it defeats the purpose of OAuth (the client never sees the password in authorization code flow). Still used in some legacy systems and for automated testing against Cognito's `USER_PASSWORD_AUTH` flow.
+Sends username + password directly to the auth server. **Do not use** for new projects — it defeats the purpose of OAuth (in authorization code flow, the client never sees the password). Still appears in some legacy systems and automated tests.
+
+Note: Cognito's `USER_PASSWORD_AUTH` / `ADMIN_USER_PASSWORD_AUTH` are **not** the OAuth 2.0 ROPC grant. They are Cognito-native auth flows exposed via the `InitiateAuth` / `AdminInitiateAuth` APIs — Cognito's `/oauth2/token` endpoint does not support `grant_type=password`.
 
 ---
 
@@ -191,25 +196,22 @@ Built-in, user-identity related:
 
 ### Custom Scopes (Resource Servers)
 
-For your own APIs, define custom scopes via a **resource server** registration. Custom scopes are prefixed with the resource server identifier:
+For your own APIs, define custom scopes on the auth server. The naming convention below (`<resource-server-id>/<scope>`) is **Cognito-specific** — Auth0 uses URL-style identifiers (`https://api.example.com/charge`), Okta uses simple strings, etc. OAuth 2.0 itself (RFC 6749) treats scopes as opaque space-separated strings with no required format.
 
 ```
+# Cognito style
 Resource Server ID: "payments-api"
 Scope name:        "charge"
 Full scope:        "payments-api/charge"
-
-Resource Server ID: "users-api"
-Scope name:        "delete"
-Full scope:        "users-api/delete"
 ```
 
-The prefix makes scopes unambiguous when one auth server protects multiple APIs.
+Whatever convention your provider uses, the prefix/identifier makes scopes unambiguous when one auth server protects multiple APIs.
 
 ---
 
 ## Resource Servers — Registering Your API
 
-A **Resource Server** is your API registered with the authorization server. It defines:
+In RFC 6749, the "resource server" is simply the API that accepts access tokens — there is no registration concept in the core spec. The idea of **registering** a resource server (with an identifier + a set of declared scopes) on the auth server is a **product convention** used by Cognito, Auth0, and similar managed providers. It defines:
 - A unique identifier (often a URL, sometimes a short name)
 - The scopes your API recognizes
 
@@ -277,9 +279,9 @@ Auth Server issues token with exactly those scopes (if client is allowed)
 
 | Token | Format | Who reads it | Typical TTL |
 |-------|--------|-------------|-------------|
-| **Access Token** | JWT | Your API | 1-24 hours |
-| **ID Token** | JWT | Your app (frontend/backend) | 1-24 hours |
-| **Refresh Token** | Opaque string | Auth server only | Days to months |
+| **Access Token** | JWT (Cognito, Auth0, Okta) or opaque (spec allows either) | Your API | 1-24 hours |
+| **ID Token** | JWT (required by OIDC) | Your app (frontend/backend) | 1-24 hours |
+| **Refresh Token** | No format defined by spec — treat as opaque | Auth server only | Days to months |
 
 **Access token**: carry on every API request in `Authorization: Bearer <token>`. Your API validates it.
 

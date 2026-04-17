@@ -142,7 +142,7 @@ from utils.logger import setup_logging
 setup_logging()   # root → all.log + console
 ```
 
-**`src/data/logger.py`** (same as above, but note `propagate=False` stops double-emit):
+**`src/data/logger.py`** (same as above, but note `propagate=False` stops double-emit — see [02_hierarchy_and_propagation.md](./02_hierarchy_and_propagation.md#the-double-emit-problem) for the mechanics):
 
 ```python
 def get_data_logger() -> logging.Logger:

@@ -10,7 +10,7 @@ The `contextvars` module (stdlib since Python 3.7) solves this cleanly for sync,
 
 ---
 
-## 1️⃣ The Problem
+## The Problem
 
 ### Global variables are shared across all requests
 
@@ -62,7 +62,7 @@ Why? `asyncio` runs many coroutines on **one thread**. `threading.local()` is pe
 
 ---
 
-## 2️⃣ The `contextvars` Module (Python 3.7+)
+## The `contextvars` Module (Python 3.7+)
 
 The stdlib `contextvars` module provides these building blocks:
 
@@ -85,7 +85,7 @@ How it works under the hood:
 
 ---
 
-## 3️⃣ Basic Usage (Sync)
+## Basic Usage (Sync)
 
 ### Creating and using a ContextVar
 
@@ -148,7 +148,7 @@ print(request_id.get())       # N/A (reverted)
 
 ---
 
-## 4️⃣ ContextVars in Async Code
+## ContextVars in Async Code
 
 Key insight: **`asyncio.create_task()` copies the current context into the new task.** Each task gets an isolated snapshot.
 
@@ -234,7 +234,7 @@ What happened:
 
 ---
 
-## 5️⃣ ContextVars in Threaded Code
+## ContextVars in Threaded Code
 
 Context does **NOT** auto-propagate to threads you spawn manually. If you create a raw thread, it starts with an empty/default context.
 
@@ -299,7 +299,7 @@ async def handle_request():
     await loop.run_in_executor(None, sync_db_query)
 ```
 
-`asyncio.loop.run_in_executor()` automatically wraps the callable with `copy_context().run()`. But if you use a raw `ThreadPoolExecutor` outside of asyncio, you need to copy context yourself:
+`asyncio.loop.run_in_executor()` automatically wraps the callable with `copy_context().run()` **only when you use the default executor** (pass `None` as the first argument). If you pass a **custom** `Executor` — a ThreadPoolExecutor you created yourself, a ProcessPoolExecutor, etc. — the event loop does not copy context for you, and the executor thread will see empty ContextVars. In that case, or if you use a raw `ThreadPoolExecutor` outside of asyncio, you need to copy context yourself:
 
 ```python
 from contextvars import ContextVar, copy_context
@@ -322,9 +322,11 @@ def main():
 main()
 ```
 
+The same `ctx.run(...)` wrapping is required when you hand a custom executor to `loop.run_in_executor(custom_executor, fn)` — the auto-copy only applies to the default executor.
+
 ---
 
-## 6️⃣ Practical Patterns
+## Practical Patterns
 
 ### Pattern 1: Request ID Middleware (FastAPI)
 
@@ -459,7 +461,7 @@ async def get_user_by_id(user_id: int):
 
 ---
 
-## 7️⃣ ContextVars and Background Tasks
+## ContextVars and Background Tasks
 
 ### FastAPI `BackgroundTasks` — context IS propagated
 
@@ -541,7 +543,7 @@ process_order.send(order_id=42, request_id=req_id)
 
 ---
 
-## 8️⃣ Comparison Table
+## Comparison Table
 
 | Mechanism | Sync threads | Async tasks | New threads (manual) | Subprocess / worker |
 |-----------|-------------|-------------|----------------------|---------------------|
@@ -555,7 +557,7 @@ process_order.send(order_id=42, request_id=req_id)
 
 ---
 
-## 9️⃣ Common Mistakes
+## Common Mistakes
 
 ### Mistake 1: Setting at module level
 

@@ -82,10 +82,10 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 python:3.12       → ~1.0 GB (full Debian, docs, man pages)
 python:3.12-slim  → ~150 MB (minimal Debian)
-python:3.12-alpine → ~50 MB (musl libc — compatibility issues)
+python:3.12-alpine → ~50 MB (musl libc — smaller but trickier)
 ```
 
-> **Use `slim`.** Alpine looks attractive but uses `musl` instead of `glibc`, which breaks many Python packages that rely on C extensions (numpy, pandas, psycopg2). The 100MB savings is not worth the debugging time.
+> **Default to `slim`.** Alpine uses `musl` instead of `glibc`. The long-standing pain — no binary wheels, long compile-from-source installs — has mostly been resolved: PEP 656 added the `musllinux` wheel tag, and as of 2024–2025 numpy, pandas, psycopg2-binary, scipy, matplotlib, and most of the scientific stack ship `musllinux_1_2` wheels on PyPI. The cases where Alpine still hurts are: (a) packages that have not yet published musllinux wheels — check with `pip install --only-binary=:all: <pkg>`; (b) subtle runtime differences (DNS resolver behavior, thread-local stacks) that can surface as hard-to-diagnose bugs. If you want the smaller image and your dependency tree installs cleanly from wheels, Alpine is fine. Otherwise stick with `slim` — the 100MB savings is rarely worth the compatibility debugging.
 
 ### Why Non-Root User
 
@@ -858,7 +858,7 @@ pip install --no-cache-dir -r requirements.txt
 # No cache written, smaller image
 ```
 
-Every MB in your image multiplies across every pull, every node, every deployment.
+Every MB multiplies across every pull, node, and deployment.
 
 ### Layer Ordering for Cache
 
@@ -1173,3 +1173,146 @@ curl http://localhost:8000/ready
 > **A container is not a VM. It is a process with isolated filesystem and network.**
 
 Treat it that way: small images, single process, no state, fast startup, clean shutdown. Everything else — scaling, failover, routing — is the orchestrator's job.
+
+---
+
+## Kubernetes Essentials for Python Services
+
+Deployment mechanics this corpus didn't cover elsewhere. Short and pragmatic; not a Kubernetes tutorial.
+
+### Rolling Deployments vs Blue/Green
+
+**Rolling update (Kubernetes default):** new pods are created while old ones are terminated, one or a few at a time. No downtime, but old and new versions run simultaneously for a few seconds to minutes.
+
+```yaml
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%          # at most 125% of desired replicas during rollout
+      maxUnavailable: 0      # never drop below 100% availability
+```
+
+**Blue/Green:** deploy the new version to a parallel environment ("green"), run smoke tests, then flip the load balancer. Instant cutover, instant rollback.
+
+- Rolling: cheaper (no doubled capacity), simpler to operate, gives you canary-like gradual exposure.
+- Blue/green: cleaner rollback (just flip traffic back), but doubles the running cost during cutover, and database migrations become harder (both versions must work against the migrated schema).
+
+**When to use which:**
+- Stateless services with compatible schema migrations: rolling.
+- Services with risky migrations or where "old and new running at the same time" is unsafe: blue/green.
+- Most teams: rolling with good observability + manual canary if the change is sensitive.
+
+### Readiness vs Liveness Probes — Tuning That Matters
+
+Two probes, two different questions:
+
+- **Liveness**: "is this process alive, or is it stuck/deadlocked and needs a kill?" Failing liveness → pod is killed and restarted.
+- **Readiness**: "should this pod receive traffic right now?" Failing readiness → pod is removed from the Service's endpoints, but **not** killed.
+
+For a Python web service, liveness is almost always more dangerous than useful — a slow response is not a dead process, but a wrong liveness probe will kill a busy pod mid-request. Rule of thumb:
+
+- **Liveness**: very conservative. Only fail on a condition that genuinely means "this pod will never recover without a restart" — deadlocked event loop, stuck forever on a corrupt internal state.
+- **Readiness**: tighter. This pod is temporarily unable to serve — dependency down, startup not complete, queue drain in progress.
+
+```yaml
+containers:
+- name: api
+  readinessProbe:
+    httpGet: { path: /ready, port: 8000 }
+    initialDelaySeconds: 5       # don't probe before the app can possibly be up
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3          # remove from service after 15s of failure
+  livenessProbe:
+    httpGet: { path: /health, port: 8000 }
+    initialDelaySeconds: 30      # generous — app must be fully warm first
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 6          # kill only after 90s of failure
+  # startupProbe (optional) — use when startup is slow (>30s)
+  startupProbe:
+    httpGet: { path: /health, port: 8000 }
+    periodSeconds: 5
+    failureThreshold: 60         # gives 5 minutes to finish starting
+```
+
+Interaction with graceful shutdown:
+- On termination, Kubernetes sends SIGTERM, then waits `terminationGracePeriodSeconds` (default 30s) before SIGKILL.
+- **Readiness check must start failing *before* SIGTERM arrives** so traffic stops before in-flight requests wind down. Implement a "draining" mode in your app that flips a flag when shutdown begins, which your `/ready` endpoint reads.
+- Match `preStop` hooks to avoid races: `sleep 5` before shutdown gives the LB time to stop sending traffic.
+
+### Resource Requests and Limits
+
+Every pod spec should set these — leaving them unset is one of the most common causes of noisy-neighbor problems in clusters.
+
+```yaml
+resources:
+  requests:
+    cpu: 250m          # 0.25 CPU — guarantees scheduling on a node with this available
+    memory: 512Mi      # guarantees this much RAM
+  limits:
+    cpu: 1000m         # 1 CPU — hard cap; beyond this, the pod is throttled
+    memory: 1Gi        # hard cap; beyond this, the pod is OOM-killed
+```
+
+- **Requests** = what the scheduler reserves. Too low → pod co-locates with neighbors and fights for CPU/memory. Too high → wastes cluster capacity.
+- **Limits** = hard ceiling. CPU: you get throttled (latency spike, not a kill). Memory: you get OOM-killed.
+- **Memory limit == memory request** is safe and predictable. **CPU limit > CPU request** lets you burst when a neighbor isn't using theirs.
+- Measure under load. Pick requests at p50 steady-state, limits at p99 peak + headroom. Adjust based on actual metrics, not guesses.
+
+**Python-specific note:** Python doesn't release memory back to the OS easily. If the process's high-water mark is 700MB but it's currently using 400MB, the OS reports 700MB. Set memory limits accounting for this.
+
+### Autoscaling — HPA and KEDA
+
+**Horizontal Pod Autoscaler (HPA):** scales pod count based on CPU or custom metrics.
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: api }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: api }
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target: { type: Utilization, averageUtilization: 70 }
+```
+
+HPA reacts on a 15–30s cycle and has configurable scale-up / scale-down stabilization windows. Default scale-down is conservative (5 minutes) to avoid flapping. Don't touch it without a reason.
+
+**KEDA:** HPA extended with event-driven sources — Redis queue depth, Kafka lag, SQS message count, HTTP requests per second via Prometheus. Essential when your service is queue-driven (background workers), not request-driven.
+
+```yaml
+# KEDA ScaledObject scaling on Redis list length
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: worker }
+spec:
+  scaleTargetRef: { kind: Deployment, name: worker }
+  minReplicaCount: 1
+  maxReplicaCount: 50
+  triggers:
+  - type: redis
+    metadata:
+      address: redis.default:6379
+      listName: dramatiq:default
+      listLength: "10"     # target: one pod per ~10 messages queued
+```
+
+KEDA can scale to zero, which HPA cannot — useful for low-traffic workers. Pair with a cold-start-tolerant workload.
+
+**Autoscaling gotchas:**
+- Scaling on CPU alone is blunt. A queue-driven worker that's I/O-waiting isn't using CPU even when backed up. Scale on queue depth or response latency instead.
+- Scale-up is limited by pod startup time. A 60-second startup means you can't react to 30-second traffic spikes; pre-scale via scheduled scaling or keep a baseline of minReplicas.
+- Scale-down can kill in-flight requests. Combine with proper readiness probes + graceful shutdown.
+
+---
+
+## See also
+
+- [../testing/fastapi_testing.md](../testing/fastapi_testing.md) — integration tests with real Postgres via testcontainers.
+- [../../fundamentals/fastapi/Safe_and_Scalable_API_calls/04_kubernetes.md](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/04_kubernetes.md) — per-pod vs cluster-wide admission control.

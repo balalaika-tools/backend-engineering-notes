@@ -41,7 +41,7 @@ Full-featured, production-grade database. Use it for any application that will r
 | Data types | Rich: `JSONB`, arrays, `UUID`, `INET`, `TSVECTOR`, ranges |
 | Indexes | B-tree, Hash, GIN (for JSONB/arrays), GiST, BRIN |
 | Full-text search | Built-in `tsvector` + `tsquery` |
-| Replication | Streaming replication, logical replication |
+| Replication | Streaming replication, logical replication (see §Replication and Read Replicas below) |
 | Extensions | `pgvector` (embeddings), `PostGIS` (geospatial), `pg_trgm` (fuzzy search) |
 | Max DB size | No practical limit (tested to petabytes) |
 
@@ -268,6 +268,67 @@ Rule of thumb: add indexes for your known query patterns. Don't index everything
 ```sql
 EXPLAIN ANALYZE SELECT * FROM users WHERE email = 'alice@example.com';
 ```
+
+### Reading `EXPLAIN ANALYZE` Output
+
+`EXPLAIN` shows the plan the optimizer will use. `EXPLAIN ANALYZE` actually runs the query and reports real numbers. The output is a tree of nodes; read bottom-up (leaves run first).
+
+```
+Index Scan using users_email_idx on users  (cost=0.42..8.44 rows=1 width=64) (actual time=0.041..0.043 rows=1 loops=1)
+  Index Cond: (email = 'alice@example.com'::text)
+Planning Time: 0.108 ms
+Execution Time: 0.071 ms
+```
+
+What each piece means:
+
+| Piece | Meaning |
+|-------|---------|
+| `Index Scan using users_email_idx` | Used an index. Seeking to rows directly. |
+| `Seq Scan on users` | Reading the whole table. Fine for small tables; a red flag on large ones with a `WHERE` that should be indexable. |
+| `Bitmap Index Scan` / `Bitmap Heap Scan` | Mid-selectivity query: index gives row locations, heap is read in sorted order. |
+| `cost=0.42..8.44` | Planner's estimated cost units (startup..total). Arbitrary, but comparable across plans. |
+| `rows=1` | Planner's row estimate. Compare against actual — mismatch by 10×+ means stale statistics (run `ANALYZE tablename`). |
+| `actual time=0.041..0.043` | Wall time, ms. First number is time to first row, second is time to last row. |
+| `loops=N` | Node executed N times (once per outer row in a nested loop join). Total time = per-loop × loops. |
+| `Planning Time` / `Execution Time` | Planning cost (usually sub-ms) and real execution. If planning is a large fraction of total, the query is fast enough to not care. |
+
+**What to look for when tuning:**
+
+- `Seq Scan` on a large table with a selective `WHERE` → add the right index.
+- Large gap between estimated `rows=` and actual rows in the output → `ANALYZE` the table (autovacuum usually handles this, but bulk loads may outrun it).
+- `Rows Removed by Filter: N` after an index scan → index matched too broadly; consider a composite or partial index.
+- Nested Loop with high `loops=` → outer side is big; maybe a Hash Join would be better. PostgreSQL usually picks right, but very skewed data or wrong stats can mislead it.
+
+### Partial Indexes
+
+A **partial index** indexes only the rows matching a `WHERE` clause. Smaller on disk, faster to maintain, and often faster to query — because the index is exactly the subset you filter on.
+
+```sql
+-- Most orders are completed; only a small fraction are 'active'.
+-- A full index on status is huge and mostly useless for the "active" query.
+CREATE INDEX idx_orders_active ON orders (user_id, created_at)
+    WHERE status = 'active';
+```
+
+Now:
+
+```sql
+SELECT * FROM orders
+ WHERE user_id = 42
+   AND status = 'active'
+ ORDER BY created_at DESC;
+```
+
+…uses this partial index, which contains only active rows. The index is a fraction of the size of a full `(user_id, created_at)` index and reads are proportionally faster.
+
+Other good partial-index targets:
+
+- **Soft-delete columns**: `WHERE deleted_at IS NULL` — exclude the dead rows from the index.
+- **Flag columns with lopsided distribution**: `WHERE flagged = true` — the 0.1% of rows flagged for review.
+- **Recent activity**: `WHERE created_at > now() - interval '30 days'` — but this becomes stale; pair with a job that rebuilds the index (or prefer time-based partitioning).
+
+Cost to remember: PostgreSQL can only use a partial index when the query's `WHERE` clause is a superset of the index predicate. A query without `status = 'active'` ignores this index entirely.
 
 ---
 
@@ -645,3 +706,56 @@ SELECT * FROM pg_stat_user_indexes WHERE idx_scan = 0;
 SELECT query, calls, mean_exec_time FROM pg_stat_statements
 ORDER BY mean_exec_time DESC LIMIT 20;
 ```
+
+---
+
+## Replication and Read Replicas
+
+Postgres replicates via the **Write-Ahead Log (WAL)**. Every change the primary makes is first written to the WAL; replicas stream that log and apply it. Understanding this mechanism is worth the five minutes:
+
+### Streaming replication (the default for RDS / Aurora / self-hosted HA)
+
+The primary ships WAL records to the replica continuously. The replica applies them, usually within a few milliseconds. **It's asynchronous** — the primary acks the client as soon as it writes locally; replicating to the replica is a separate step. Synchronous replication is a configuration option (`synchronous_commit = on`) but adds latency to every write, so most deployments stay async.
+
+**Replication lag** is the time between a write committing on the primary and being visible on a replica. On a healthy system it's sub-second; under heavy write load it can grow to seconds or minutes. Monitoring lag is non-negotiable:
+
+```sql
+-- On the primary — shows lag per replica
+SELECT client_addr, state, write_lag, flush_lag, replay_lag
+  FROM pg_stat_replication;
+
+-- On the replica — current lag against the primary
+SELECT now() - pg_last_xact_replay_timestamp() AS lag;
+```
+
+Alert when lag exceeds your tolerance. Lag > 30s usually means the replica is underprovisioned (CPU, IO) or the primary is generating WAL faster than it can be streamed.
+
+### Reading from replicas
+
+The business reason to have replicas: **offload read traffic**. Reporting queries, dashboard aggregations, non-critical reads — send them to a replica so the primary can focus on writes.
+
+```python
+# Separate engines, separate pools
+write_engine = create_async_engine(PRIMARY_URL, pool_size=20)
+read_engine = create_async_engine(REPLICA_URL, pool_size=30)
+
+# Dependencies pick based on intent
+async def get_write_session():
+    async with async_sessionmaker(write_engine)() as s:
+        yield s
+
+async def get_read_session():
+    async with async_sessionmaker(read_engine)() as s:
+        yield s
+```
+
+**Rule of thumb for safety:** do not read from a replica immediately after writing to the primary if the user expects to see their write. The 200ms of replication lag is plenty to produce "I just saved this and it's gone" bug reports. Options:
+- Read the user's own writes from the primary (tag "my own data" queries as writable).
+- Use a read-your-writes cache (write goes to primary + cache; reads check cache first).
+- Accept the UX and clearly indicate "this may take a moment to appear."
+
+### Logical replication
+
+Logical replication replays changes at the **row level**, not WAL block level. This lets you replicate subsets of tables, replicate across Postgres versions, or feed the changes to a non-Postgres consumer (Kafka, Elasticsearch) via Debezium. Slower and more complex than streaming replication; use when you need the flexibility, not when you just want a hot standby.
+
+---

@@ -160,8 +160,33 @@ One slow API could starve connections for another.
 ### Solution
 
 For multi-API scenarios, consider:
-1. Separate clients per API
-2. Application-level semaphores per API
+1. **Separate clients per API** — each gets its own independent pool.
+2. **Application-level semaphores per API** — a shared client is fine, but gate calls to each API through its own `asyncio.Semaphore` so one slow API cannot starve the rest of the pool.
+
+```python
+import asyncio
+import httpx
+
+# One shared client, but a per-host semaphore caps concurrent in-flight calls per API.
+client = httpx.AsyncClient(
+    limits=httpx.Limits(max_connections=100, max_keepalive_connections=50),
+)
+
+api1_sem = asyncio.Semaphore(20)  # cap on api1.example.com
+api2_sem = asyncio.Semaphore(20)  # cap on api2.example.com
+
+
+async def call_api1(path: str):
+    async with api1_sem:
+        return await client.get(f"https://api1.example.com{path}")
+
+
+async def call_api2(path: str):
+    async with api2_sem:
+        return await client.get(f"https://api2.example.com{path}")
+```
+
+The semaphore does **not** replace the HTTPX pool — it sits in front of it and ensures no single API's slowness can consume all 100 pool slots. Set each semaphore to your target per-API concurrency (informed by the API's rate limit; see `Safe_and_Scalable_API_calls/01_core_concepts.md` for the `rate × call_timeout` bound).
 
 ---
 

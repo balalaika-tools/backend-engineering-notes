@@ -61,7 +61,7 @@ logger.info("Fetching data...")
 logger.error("Failed to load model")
 ```
 
-All modules respect the **main config** you define once in your entry point (`main.py`). The logger name becomes the module's `__name__` (e.g. `src.data.load`), which maps to a node in the logger hierarchy — see [02_hierarchy_and_propagation.md](02_hierarchy_and_propagation.md).
+All modules respect the **main config** you define once in your entry point (`main.py`). The logger name becomes the module's `__name__` (e.g. `src.data.load`), which maps to a node in the logger hierarchy. See [02_hierarchy_and_propagation.md](02_hierarchy_and_propagation.md) for how parent/child loggers relate and how records propagate up the tree.
 
 ---
 

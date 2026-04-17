@@ -2,6 +2,8 @@
 
 A complete guide to WebSockets in FastAPI — from mental model to production-ready patterns.
 
+> ⚠️ **`BaseHTTPMiddleware` does not run on WebSocket connections.** If you relied on `@app.middleware("http")` or any `BaseHTTPMiddleware` subclass for logging, request IDs, timing, or error normalization, none of that code executes for WebSocket endpoints — the connection uses the `"websocket"` ASGI scope, which `BaseHTTPMiddleware` explicitly skips. For cross-cutting logic that needs to apply to WebSockets too, write **pure ASGI middleware** (see [05_middleware.md §9 Custom Middleware Class (ASGI)](./05_middleware.md#9-custom-middleware-class-asgi) for the pattern), or put the logic inside a FastAPI dependency that each WebSocket endpoint uses.
+
 ---
 
 ## 1. The Mental Model
@@ -583,7 +585,7 @@ const ws = new WebSocket(`ws://localhost:8000/ws?ticket=${ticket}`);
 
 TCP connections can die silently:
 - Client loses network (laptop lid closed, WiFi drop)
-- NAT/firewall timeout (common after 30-60s of idle)
+- NAT/firewall timeout (varies widely — home routers are often in the 30-60s range for UDP but much longer for established TCP; corporate firewalls and cloud NAT gateways can idle-time-out TCP at 350s+, and some hit you at ~2 minutes. Treat any specific number as "measure your path" guidance, not a standard)
 - Intermediate proxy drops the connection
 
 Without heartbeats, the server holds dead connections indefinitely — wasting memory and corrupting connection counts.

@@ -52,6 +52,7 @@ The execution plane. Receives a task, does the work (inference, classification, 
 | 2 | [Worker Patterns](02_worker_patterns.md) | Health reporting, result storage, batch collection, graceful vs ungraceful failure, idempotency |
 | 3 | [Client Delivery Patterns](03_client_delivery_patterns.md) | WebSocket, SSE, long-polling, short-polling, webhook, Redis pub/sub — how the client gets results |
 | 4 | [Infrastructure & Technology](04_infrastructure.md) | Redis, RabbitMQ, SQS, Kafka, Step Functions, Celery, PostgreSQL LISTEN/NOTIFY — concrete tools for each pattern |
+| 5 | [Advanced Patterns](05_advanced_patterns.md) | Saga, Outbox, delivery semantics (at-least-once vs exactly-once), progress/cancellation/resumability, distributed tracing |
 
 ---
 

@@ -94,13 +94,13 @@ This is the raw ASGI protocol. No abstractions, no wrappers.
 
 ### The Recommendation
 
-> **Use pure ASGI middleware for production.** `@app.middleware("http")` and `BaseHTTPMiddleware` are convenient for learning and prototyping, but they have fundamental architectural problems that make them unsuitable for production services. See Section 9 for the full explanation.
+> **Prefer pure ASGI middleware for production.** `@app.middleware("http")` and `BaseHTTPMiddleware` are convenient, but they have architectural limitations that matter under production load — buffered bodies, an extra Task per request, broken streaming, no WebSocket support. Section 9 walks through the mechanics; the guidance below tells you when each is actually the right pick.
 
-**Use `@app.middleware("http")` / `BaseHTTPMiddleware` only when:**
+**Use `@app.middleware("http")` / `BaseHTTPMiddleware` when:**
 
-- You are prototyping or learning
-- You are certain you will never stream responses
-- You accept the performance overhead
+- You are prototyping or learning the middleware layer
+- Your endpoints never stream (no SSE, no large file downloads, no WebSockets)
+- The per-request overhead is acceptable for your throughput target
 
 **Use pure ASGI middleware (recommended) when:**
 
@@ -244,10 +244,10 @@ app.add_middleware(TimingMiddleware)
 
 | Function | Monotonic | Resolution | Use Case |
 |----------|-----------|------------|----------|
-| `time.time()` | No (affected by NTP/clock adjustments) | Microseconds | Wall clock / timestamps |
-| `time.perf_counter()` | Yes | Nanoseconds | Measuring durations |
+| `time.time()` | No (reflects wall-clock adjustments) | Microseconds | Wall clock / timestamps |
+| `time.perf_counter()` | Yes (OS-level monotonic source) | Nanoseconds | Measuring durations |
 
-Always use `perf_counter()` for duration measurement. `time.time()` can go backward if the system clock is adjusted.
+Always use `perf_counter()` for duration measurement. `time.time()` reflects wall-clock adjustments — NTP step corrections, manual operator changes, or OS-level clock events in some setups — any of which can make a "later" timestamp read as earlier than an "earlier" one. `perf_counter` is immune because it reads a monotonic source.
 
 ### Production Enhancement: Prometheus Metrics
 
@@ -648,7 +648,7 @@ Pure ASGI flow:
 
 #### The Performance Impact
 
-Benchmarks consistently show **15-25% higher latency** and **significantly higher memory usage** with BaseHTTPMiddleware compared to pure ASGI, even for simple middleware that just adds a header. The overhead comes from Task creation, response buffering, and the extra copy of the response body.
+BaseHTTPMiddleware adds **measurably higher latency** and **higher memory usage** than pure ASGI middleware, even when the middleware itself does nothing but add a header. The overhead comes from three sources: spawning an `asyncio.Task` per request, buffering the full response body in memory, and an extra copy of that body as it's drained from the buffer. Magnitude depends on response size and traffic shape — benchmark your own workload rather than quoting a single number.
 
 ### Pure ASGI Middleware
 
@@ -722,7 +722,7 @@ app.add_middleware(PureASGITimingMiddleware)
 | Streaming support | No (silently breaks streaming) | Full support |
 | Client disconnect | Not propagated to endpoint | Propagated immediately |
 | Memory usage | Entire response body in RAM | Constant (streaming) |
-| Performance overhead | ~15-25% higher latency | Baseline |
+| Performance overhead | Measurably higher latency | Baseline |
 | Extra Tasks per request | 1 additional `asyncio.Task` | None |
 | When to use | Prototyping, learning | Production |
 

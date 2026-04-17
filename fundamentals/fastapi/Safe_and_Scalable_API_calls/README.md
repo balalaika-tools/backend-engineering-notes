@@ -34,7 +34,8 @@ The only hard concurrency limit in an external API system is imposed by the **HT
 | [07](07_streaming_patterns.md) | Streaming Patterns | SSE, streaming timeouts, semaphore duration |
 | [08](08_streaming_advanced.md) | Streaming Advanced | Multi-stream, aggregation, circuit breakers for streaming |
 | [09](09_distributed_admission_control.md) | Distributed Admission Control | Redis-centric admission, key taxonomy, atomic Lua, retries & quota accounting |
-| [10](10_llm_token_economics.md) | LLM Token Economics | Reserve → Retry → Reconcile pattern for token quotas; estimation strategies |
+| [10](10_llm_token_economics.md) | LLM Token Economics | Reserve → Retry → Reconcile pattern for token quotas; estimation strategies; cost observability & retry budgets |
+| [11](11_idempotency.md) | Idempotency Keys | Safe POST retries, dedup state machine, Postgres + Redis implementations |
 
 ---
 

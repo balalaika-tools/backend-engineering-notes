@@ -128,15 +128,13 @@ JWKS endpoint:
 https://cognito-idp.<region>.amazonaws.com/<pool_id>/.well-known/jwks.json
 ```
 
-The validation steps:
-1. Decode the token header — get the `kid` (key ID)
-2. Fetch the JWKS endpoint (cache this — it rarely changes)
-3. Find the public key matching the `kid`
-4. Verify the signature
-5. Check `exp` — not expired
-6. Check `token_use` — `"access"` or `"id"` depending on what you expect
-7. Check `aud` (IdToken) or `client_id` (AccessToken) — matches your client_id
-8. Check `iss` — matches your user pool URL
+**Start with the generic JWT validation algorithm in [auth/jwt.md §Validation Algorithm](../jwt.md#validation-algorithm).** Cognito adds three extra checks on top:
+
+| Step | Generic JWT | Cognito addition |
+|------|-------------|------------------|
+| `iss` | match your auth server | must be `https://cognito-idp.<region>.amazonaws.com/<pool_id>` exactly |
+| `aud` vs `client_id` | check whichever your issuer sets | **IdToken** → check `aud`; **AccessToken** → check `client_id` (Cognito access tokens typically have no `aud` unless resource-server-scoped) |
+| `token_use` | n/a | must be `"id"` or `"access"` — reject if the wrong kind shows up where the other is expected |
 
 ### Python Validation
 
@@ -154,12 +152,22 @@ CLIENT_ID = 'your-client-id'
 
 JWKS_URL = f'https://cognito-idp.{REGION}.amazonaws.com/{POOL_ID}/.well-known/jwks.json'
 
-# Cache this — fetch once and reuse
-def get_jwks():
-    with urllib.request.urlopen(JWKS_URL) as f:
-        return json.loads(f.read())
+# Cache this. See auth/jwt.md §"JWKS" for cache-TTL and rotation guidance —
+# the short version: cache for 15–60 minutes and refetch on `kid` miss.
+_jwks_cache: dict | None = None
 
-jwks = get_jwks()
+
+def get_jwks(force_refresh: bool = False) -> dict:
+    global _jwks_cache
+    if _jwks_cache is None or force_refresh:
+        with urllib.request.urlopen(JWKS_URL) as f:
+            _jwks_cache = json.loads(f.read())
+    return _jwks_cache
+
+
+def _find_key(jwks: dict, kid: str) -> dict | None:
+    return next((k for k in jwks['keys'] if k['kid'] == kid), None)
+
 
 def validate_token(token: str, token_use: str = 'access') -> dict:
     """
@@ -171,10 +179,16 @@ def validate_token(token: str, token_use: str = 'access') -> dict:
     headers = jwt.get_unverified_headers(token)
     kid = headers['kid']
 
-    # Find the matching public key
-    key = next((k for k in jwks['keys'] if k['kid'] == kid), None)
+    # Find the matching public key. On `kid` miss, refetch JWKS once and retry —
+    # Cognito rotates keys, and a miss usually means the cache is stale, not that
+    # the token is bad. Only give up after the refetch also fails.
+    jwks = get_jwks()
+    key = _find_key(jwks, kid)
     if not key:
-        raise ValueError("Public key not found — token may be from a different pool")
+        jwks = get_jwks(force_refresh=True)
+        key = _find_key(jwks, kid)
+    if not key:
+        raise ValueError("Public key not found after JWKS refresh — token may be from a different pool")
 
     # Verify signature and decode
     public_key = jwk.construct(key)

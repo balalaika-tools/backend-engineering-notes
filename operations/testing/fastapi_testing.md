@@ -1075,3 +1075,134 @@ class TestListUsers:
 | Test isolation | No shared mutable state, no leaked overrides |
 
 > **The key insight**: FastAPI's dependency injection system makes testing straightforward — override dependencies with fakes, test through the HTTP interface, and clean up after every test. If testing is painful, your production code probably has a dependency injection problem.
+
+---
+
+## Testing Against a Real Database
+
+Mocking the database is often wrong. Tests that pass against mocks but fail against real Postgres are a common source of "works on CI, breaks in prod" — mocked tests don't catch migration bugs, query mistakes that the ORM translates differently, or constraint violations. The two established ways to run tests against real Postgres without a full staging environment:
+
+### `testcontainers-python`
+
+Spins up a real Postgres container per test session, tears it down after. Docker required; works in local dev and most CI providers.
+
+```python
+# conftest.py
+import pytest
+from testcontainers.postgres import PostgresContainer
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+
+@pytest.fixture(scope="session")
+def postgres_url():
+    with PostgresContainer("postgres:16-alpine") as pg:
+        yield pg.get_connection_url().replace("postgresql://", "postgresql+asyncpg://")
+
+
+@pytest.fixture(scope="session")
+async def engine(postgres_url):
+    engine = create_async_engine(postgres_url)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture
+async def db_session(engine):
+    """A session that rolls back after each test — isolation without teardown cost."""
+    async with engine.connect() as conn:
+        tx = await conn.begin()
+        Session = async_sessionmaker(bind=conn, expire_on_commit=False)
+        session = Session()
+        try:
+            yield session
+        finally:
+            await session.close()
+            await tx.rollback()
+```
+
+**Pros:** real database engine, real constraints, real SQL dialect.
+**Cons:** Docker dependency (CI must support Docker-in-Docker or use services). Container startup adds ~5s to the first test; `scope="session"` amortizes that.
+
+### `pytest-postgresql`
+
+Installs and manages a Postgres instance as a pytest plugin. No Docker — requires Postgres binaries on the host.
+
+```python
+# conftest.py
+from pytest_postgresql import factories
+postgresql_my = factories.postgresql("postgresql_my_proc")
+```
+
+Lighter weight than testcontainers but requires host Postgres. Fine when you control the CI image.
+
+### When mocks are still appropriate
+
+- Unit tests for **pure logic** that happen to take a session argument but don't run queries you care about. Mock the session.
+- Tests where the DB behavior is irrelevant (e.g. testing input validation before a DB call).
+
+For anything that runs SQL, prefer real Postgres. The infrastructure cost is low; the bugs caught are high-value.
+
+---
+
+## Snapshot / Approval Testing for API Response Shapes
+
+When your API contract is stable and you want to detect accidental schema changes, snapshot testing is a fast, mechanical check.
+
+```python
+# Using syrupy (pip install syrupy)
+def test_get_user_shape(client, snapshot):
+    resp = client.get("/users/42")
+    assert resp.status_code == 200
+    assert resp.json() == snapshot
+```
+
+First run stores the response in `__snapshots__/`. Subsequent runs compare. Any diff fails the test; `pytest --snapshot-update` blesses the new shape.
+
+Snapshot tests catch things unit tests don't: accidental field renames, extra fields leaking out, ordering changes. Pair with OpenAPI schema export for a second layer — dump `app.openapi()` into a file, commit it, diff in CI on every change.
+
+Don't snapshot volatile fields (timestamps, auto-IDs). Use matchers to blank them out before comparison, or include them in the snapshot and update when they deliberately change.
+
+---
+
+## Mocking External Services
+
+### HTTPX calls — `respx`
+
+```python
+import respx
+import httpx
+import pytest
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_calls_upstream(client):
+    respx.post("https://api.example.com/orders").mock(
+        return_value=httpx.Response(201, json={"id": "abc"})
+    )
+    resp = await client.post("/orders", json={"item": "x"})
+    assert resp.status_code == 201
+    assert respx.calls.call_count == 1
+```
+
+`respx` intercepts at the HTTPX transport layer, so your application code stays unchanged.
+
+### AWS SDK calls — `moto`
+
+```python
+from moto import mock_aws
+import boto3
+
+
+@mock_aws
+def test_s3_upload():
+    s3 = boto3.client("s3", region_name="us-east-1")
+    s3.create_bucket(Bucket="test-bucket")
+    # test code that uses s3 here — all in-memory, no network
+```
+
+### Contract testing against real upstreams
+
+For critical dependencies, run a **nightly** integration test against the upstream's sandbox environment. Don't mix these with your unit-test suite (they're slow, flaky, and dependent on network). Their job is to catch the "upstream changed their API" class of bug that mocks cannot.

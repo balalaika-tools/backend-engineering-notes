@@ -13,7 +13,7 @@ The Python Redis ecosystem is simpler than you might expect:
 | `redis-py` (sync) | The standard client. `redis.Redis()`. Blocking I/O. |
 | `redis-py` (async) | Same library, async API. `redis.asyncio.Redis()`. |
 
-> **That is it.** `redis-py` is the official client maintained by Redis. The old `aioredis` library was merged into `redis-py` in v4.2+. If you see `import aioredis` in legacy code, it has been replaced by `import redis.asyncio`.
+> **That is it.** `redis-py` is the official client maintained by Redis. The separate `aioredis` package is now `redis.asyncio` within `redis-py` (merged as of redis-py 4.2.0, first shipped in 4.2.0rc1). If you see `import aioredis` in legacy code, replace it with `from redis import asyncio as aioredis` or `import redis.asyncio`.
 
 ```bash
 pip install redis
@@ -268,6 +268,27 @@ async def transfer(r, from_user: str, to_user: str, amount: int):
 ```
 
 > **WATCH + MULTI/EXEC** gives you optimistic concurrency control. It is the Redis equivalent of a compare-and-swap. Useful for counters, balances, and any read-modify-write operation.
+
+### MULTI/EXEC vs Pipelines — They Are Not The Same Thing
+
+The `redis-py` API puts both behind the same `pipeline()` method, but the semantics are different.
+
+| | Pipeline (`transaction=False`) | Transaction / MULTI/EXEC (`transaction=True`) |
+|---|---|---|
+| What it does | Batches commands in one TCP round-trip | Batches **and** executes atomically on the server |
+| Atomicity | None — a server crash mid-batch leaves partial state | All-or-nothing — either every command runs or none |
+| Isolation | None — other clients can interleave writes | Commands run with no other client in between |
+| Error behavior | Failed commands don't stop later ones | Syntax errors abort before EXEC; runtime errors (e.g. `INCR` on a string) leave already-queued commands to run; Redis returns the error in the result array |
+| Use for | Pure throughput (one round-trip for N writes) | Read-modify-write, balance transfers, linked-key updates |
+
+**Key subtleties:**
+
+- A Redis "transaction" is **not a SQL transaction.** There's no rollback. If command 5 of 10 fails with a runtime error, commands 1–4 have already executed and 6–10 still will execute. You get the error in the results array — you do not get a rollback.
+- `MULTI/EXEC` does **not** block other clients. Redis is single-threaded, so between MULTI and EXEC nothing else runs anyway — atomicity is a single-threaded-execution side effect, not a locking mechanism.
+- `WATCH` is how you get isolation against other clients. Without WATCH, another client can change a key you read before your MULTI block, and you'll compute your updates on stale data. That's why the transfer example above uses `WATCH`.
+- In **Redis Cluster**, all keys touched in a MULTI/EXEC must hash to the same slot — otherwise Redis rejects it with `CROSSSLOT`. Use hash tags (`balance:{user42}:available` / `balance:{user42}:pending`) to force them together.
+
+**When to prefer Lua scripting over MULTI/EXEC:** if the operation involves conditional logic based on intermediate read results (e.g. "decrement if balance ≥ amount"), Lua scripts are simpler. The script runs atomically on the Redis server and you can branch inside it. See `EVAL` and `EVALSHA`.
 
 ---
 

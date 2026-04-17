@@ -265,8 +265,11 @@ def get_current_user(
             issuer=ISSUER,
             options={"verify_aud": False},  # verify manually below — aud location differs per token type
         )
-        # IdToken puts the app client in `aud`. AccessToken puts it in `client_id`
-        # (and `aud` on an access token, when present, is the bound resource server URL).
+        # IdToken puts the app client in `aud`. AccessToken uses `client_id` (not `aud`)
+        # to identify the app client. `aud` appears on access tokens only when the token was
+        # issued for a resource-server-scoped request; it then holds the resource server identifier,
+        # not the app client ID — so the aud-equals-CLIENT_ID comparison below is a no-op on
+        # resource-server access tokens and should not be relied on for those.
         if claims.get("client_id") != CLIENT_ID and claims.get("aud") != CLIENT_ID:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid client")
         return claims
@@ -278,9 +281,9 @@ def get_current_user(
 
 ---
 
-## How AWS Services Validate Tokens (CustomJWTAuthorizer)
+## Consuming Cognito Tokens at the Gateway (API Gateway / AgentCore JWT Authorizer)
 
-When you configure a service like API Gateway, AgentCore Gateway, or similar AWS services to protect an endpoint, you provide Cognito's discovery URL and the allowed client IDs:
+`CustomJWTAuthorizer` is an **API Gateway / AgentCore** construct, not a Cognito feature — Cognito only issues the token. When you configure an API Gateway or AgentCore Gateway to protect an endpoint, you point it at Cognito's discovery URL and list the client IDs it should trust:
 
 ```python
 auth_config = {
@@ -291,13 +294,13 @@ auth_config = {
 }
 ```
 
-The service:
+The gateway (not Cognito):
 1. Fetches the discovery document to find `jwks_uri` and `issuer`
-2. Downloads and caches the public keys
+2. Downloads and caches the Cognito public keys
 3. Validates every incoming JWT signature and claims
 4. Rejects tokens from clients not in `allowedClients`
 
-You write no validation code — you only configure which Cognito pool and clients to trust.
+You write no validation code — you only configure which Cognito pool and clients the gateway should trust. Your origin service behind the gateway can then trust the request has already been authenticated.
 
 ---
 
@@ -352,18 +355,11 @@ The token is the same JWT either way. The downstream service only cares about th
 
 ## Token Refresh Helper
 
+The generic `decode_jwt_payload` / `is_token_expired` / `seconds_until_expiry` utilities live in [auth/jwt.md §Python Utilities](../jwt.md#python-utilities) — use those. The Cognito-specific part is just the refresh call:
+
 ```python
-import base64, json, time
-
-
-def get_token_expiry(token: str) -> float:
-    payload = token.split(".")[1]
-    payload += "=" * (4 - len(payload) % 4)
-    return json.loads(base64.urlsafe_b64decode(payload))["exp"]
-
-
-def is_expiring_soon(token: str, buffer_seconds: int = 300) -> bool:
-    return get_token_expiry(token) - time.time() < buffer_seconds
+import boto3
+from fundamentals.auth.jwt_utils import is_token_expired  # the generic helper from jwt.md
 
 
 def get_valid_access_token(
@@ -372,8 +368,8 @@ def get_valid_access_token(
     client_id: str,
     region: str = "us-east-1",
 ) -> str:
-    """Return a valid access token, refreshing if it's expiring within 5 minutes."""
-    if not is_expiring_soon(access_token):
+    """Return a valid access token, refreshing via Cognito if it expires within 5 minutes."""
+    if not is_token_expired(access_token, buffer_seconds=300):
         return access_token
 
     cognito = boto3.client("cognito-idp", region_name=region)
@@ -384,6 +380,8 @@ def get_valid_access_token(
     )
     return resp["AuthenticationResult"]["AccessToken"]
 ```
+
+> **Cognito does not rotate refresh tokens.** The same refresh token keeps working until it expires (30 days by default) or is explicitly revoked. Other IdPs rotate refresh tokens on every use — the security tradeoff there is discussed in [oauth2.md](../oauth2.md).
 
 ---
 

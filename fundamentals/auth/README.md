@@ -45,3 +45,28 @@ auth/
 | IdToken vs AccessToken in Cognito? | [cognito/tokens.md](./cognito/tokens.md) |
 | How do I create a user pool + app client? | [cognito/user-pool.md](./cognito/user-pool.md) |
 | FastAPI + Cognito dependency | [cognito/oauth-jwt-guide.md → FastAPI Dependency](./cognito/oauth-jwt-guide.md) |
+
+---
+
+## Appendix — Sessions vs Tokens: Which One, When?
+
+Most of this section is about **token-based** auth (JWTs + an auth header). The older model is **session cookies**: the server issues an opaque session ID, stores the session state in a DB or Redis, and the browser sends the cookie back on each request. Both are valid; the tradeoff is real. This table is for the "should we migrate from cookies to tokens" conversation.
+
+| Dimension | Session cookies | Token-based (JWT) auth |
+|-----------|-----------------|------------------------|
+| **Revocation** | Instant — delete the row, user is logged out on next request | Not instant — tokens stay valid until `exp`. Need a deny-list for immediate cutoff (see [cognito/tokens.md § Token Revocation](./cognito/tokens.md#token-revocation)) |
+| **Stateless servers** | No — session store is a required dependency | Yes — verify the signature, read claims |
+| **Cross-domain** | Hard — cookies are scoped to a domain; third-party cookies are dying in browsers | Easy — Bearer token in the `Authorization` header works anywhere |
+| **Mobile / CLI clients** | Awkward — needs cookie jar emulation | Natural — fetch a token, send as header |
+| **XSS risk** | Lower — cookie can be `HttpOnly` and the JS can't read it | Higher — tokens are usually stored in localStorage or memory where JS can reach them |
+| **CSRF risk** | Yes — cookies are sent automatically by the browser; need CSRF tokens / SameSite=Strict | No (in practice) — tokens are sent by app code explicitly; the browser doesn't auto-attach |
+| **Size** | Small cookie (a session ID) | Larger header — JWTs are commonly 1–4 KB; matters on every request |
+| **Downstream services** | Need to verify the session, usually via a central auth service | Self-contained — any service with the JWKS can verify |
+
+### The rules of thumb
+
+- **Web-only SaaS, single domain, can afford a session store**: sessions are simpler and more secure (HttpOnly, CSRF manageable). Don't fix what isn't broken.
+- **Multi-client (web + mobile + API), multi-service, microservices**: tokens. The cross-domain and stateless-verification advantages outweigh the revocation pain.
+- **"I need both"** — OIDC providers like Cognito let you do both: browsers get a session cookie at the auth server; backend APIs get a JWT. That's the common pattern for modern auth.
+- **Session cookies + `SameSite=Strict` / `SameSite=Lax`** — with modern browser defaults (`SameSite=Lax` is default), CSRF risk is dramatically reduced. Don't dismiss sessions for CSRF fears alone.
+- **Revocation latency is usually the deciding factor.** If your app requires "cancel this session now" (password reset forces logout, employee fired), tokens add friction (build a deny-list) that sessions give you for free.

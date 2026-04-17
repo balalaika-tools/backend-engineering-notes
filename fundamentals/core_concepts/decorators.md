@@ -1,4 +1,5 @@
-# Python Decorators @ 
+# Python Decorators
+
 In Python, a **decorator** is a function that **wraps another function** to extend or modify its behavior **without changing its source code**.
 
 Think of it as:
@@ -7,7 +8,7 @@ Think of it as:
 
 ---
 
-## 1️⃣ Functions are first-class objects
+## Functions are first-class objects
 
 This is the key idea behind decorators.
 
@@ -27,7 +28,7 @@ Functions can be:
 
 ---
 
-## 2️⃣ A function that wraps another function
+## A function that wraps another function
 
 ```python
 def my_decorator(func):
@@ -65,7 +66,7 @@ What happened:
 
 ---
 
-## 3️⃣ The `@decorator` syntax (clean version)
+## The `@decorator` syntax (clean version)
 
 This is just **syntax sugar**.
 
@@ -83,7 +84,7 @@ say_hello = my_decorator(say_hello)
 
 ---
 
-## 4️⃣ Decorators with arguments
+## Decorators with arguments
 
 Most real functions have arguments, so wrappers usually look like this:
 
@@ -101,7 +102,7 @@ Now it works for **any function**.
 
 ---
 
-## 5️⃣ Preserving function metadata (`functools.wraps`)
+## Preserving function metadata (`functools.wraps`)
 
 Without this, the wrapped function **loses its name and docstring**.
 
@@ -129,7 +130,7 @@ print(say_hello.__name__)  # say_hello ✅
 
 ---
 
-## 6️⃣ Decorators with their own parameters
+## Decorators with their own parameters
 
 Example: repeat a function `n` times
 
@@ -156,7 +157,7 @@ hello()
 
 ---
 
-## 7️⃣ Real-world use cases
+## Real-world use cases
 
 Decorators are commonly used for:
 
@@ -184,7 +185,7 @@ def timer(func):
 
 ---
 
-## 🧠 Mental model (important)
+## Mental model (important)
 
 ```text
 @decorator

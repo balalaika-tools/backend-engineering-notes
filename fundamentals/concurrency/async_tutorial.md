@@ -4,7 +4,7 @@ This document explains **how asyncio works**, **what concurrency actually means*
 
 ---
 
-## 🔹 What is `async` and the Event Loop?
+## What is `async` and the Event Loop?
 
 In Python, `async` / `await` is syntax for **coroutines**: functions that can *pause* execution so other work can run.
 
@@ -23,7 +23,7 @@ Async does **not** give you CPU parallelism.
 
 ---
 
-## 🔹 Coroutines vs Tasks
+## Coroutines vs Tasks
 
 ### Coroutine
 - A coroutine is a **definition of async work**
@@ -51,13 +51,13 @@ task = asyncio.create_task(fetch_data())  # running
 
 ---
 
-## 🔹 Awaiting a Coroutine vs Creating a Task
+## Awaiting a Coroutine vs Creating a Task
 
 There are **two different ways** to execute a coroutine.
 
 ---
 
-### 1️⃣ `await some_coroutine()`
+### `await some_coroutine()`
 
 ```python
 result = await fetch_data()
@@ -75,7 +75,7 @@ Mental model:
 
 ---
 
-### 2️⃣ `asyncio.create_task(some_coroutine())`
+### `asyncio.create_task(some_coroutine())`
 
 ```python
 task = asyncio.create_task(fetch_data())
@@ -93,7 +93,7 @@ Mental model:
 
 ---
 
-### 🔑 Key Difference
+### Key Difference
 
 ```python
 await fetch_data()
@@ -111,7 +111,7 @@ asyncio.create_task(fetch_data())
 
 ---
 
-## 🔹 Sequential Await (One Coroutine)
+## Sequential Await (One Coroutine)
 
 ```python
 import asyncio, time
@@ -135,7 +135,7 @@ Why?
 
 ---
 
-## 🔹 True Async Concurrency with Multiple Tasks
+## True Async Concurrency with Multiple Tasks
 
 ```python
 async def sleeper(i):
@@ -167,7 +167,7 @@ Why?
 
 ---
 
-## 🔹 Why `TaskGroup` Instead of `gather`
+## Why `TaskGroup` Instead of `gather`
 
 `TaskGroup` provides **structured concurrency**:
 
@@ -180,7 +180,7 @@ Why?
 
 ---
 
-## ⚠️ Forgetting to await Tasks 
+## Forgetting to await Tasks
 
 When you do:
 
@@ -199,7 +199,7 @@ That's what "forgetting to await" really means.
 
 ---
 
-### ✅ Starting early and awaiting later (good pattern)
+### Starting early and awaiting later
 
 This is a common and valid optimization: start I/O early, do other work, then await when you need the result.
 
@@ -222,7 +222,7 @@ Why this is good:
 
 ---
 
-### ❌ Fire-and-forget without supervision (dangerous)
+### Fire-and-forget without supervision
 
 ```python
 async def main():
@@ -252,7 +252,7 @@ Task exception was never retrieved
 
 ---
 
-## 🔹 Async in FastAPI (Real Example)
+## Async in FastAPI (Real Example)
  
  Each request handler is a coroutine.
  
@@ -271,7 +271,7 @@ async def sleep_endpoint(n: int):
  
  ---
 
-## 🔹 `async with`: Asynchronous Context Managers
+## `async with`: Asynchronous Context Managers
 
 Just like `with` is used for resource management in synchronous code,
 `async with` is used for **asynchronous setup and cleanup**.
@@ -325,7 +325,7 @@ async with asyncio.TaskGroup() as tg:
 
 ---
 
-## 🔹 CPU-Bound Code Breaks Async
+## CPU-Bound Code Breaks Async
 
 ```python
 async def crunch():
@@ -343,7 +343,7 @@ This:
 
 ---
 
-## 🔹 Correct Way to Handle CPU-Bound Work
+## Correct Way to Handle CPU-Bound Work
 
 ### Core rule
 
@@ -352,7 +352,7 @@ This:
 
 ---
 
-## 🔹 ThreadPoolExecutor (No CPU Speedup)
+## ThreadPoolExecutor (No CPU Speedup)
 ```python
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
@@ -381,9 +381,9 @@ They **do not** speed up pure Python CPU work.
 
 ---
 
-## 🔹 ProcessPoolExecutor (True CPU Parallelism)
+## ProcessPoolExecutor (True CPU Parallelism)
 
-### ❌ Anti-pattern (DO NOT DO THIS)
+### Anti-pattern
 
 ```python
 async def process_async(x):
@@ -400,7 +400,7 @@ Why this is bad:
 
 ---
 
-### ✅ Correct Pattern: Long-Lived Process Pool
+### Correct Pattern: Long-Lived Process Pool
 
 ```python
 from concurrent.futures import ProcessPoolExecutor
@@ -424,7 +424,7 @@ pp.shutdown()
 
 ---
 
-## 🔹 Using TaskGroup with ProcessPool
+## Using TaskGroup with ProcessPool
 
 ```python
 async def main():
@@ -442,7 +442,7 @@ This gives you:
 
 ---
 
-## 🔹 `asyncio.to_thread()` (Python 3.9+)
+## `asyncio.to_thread()` (Python 3.9+)
 
 Shortcut for thread offloading:
 
@@ -458,7 +458,7 @@ Good for:
 
 ---
 
-## 🔹 When Async Is Not Enough
+## When Async Is Not Enough
 
 For larger systems, consider:
 
@@ -470,7 +470,7 @@ Async is not a replacement for job queues.
 
 ---
 
-## ✅ Summary Table
+## Summary Table
 
 | Tool                  | Best For                     | Notes                  |
 | --------------------- | ---------------------------- | ---------------------- |
@@ -491,5 +491,50 @@ Async is not a replacement for job queues.
 
 > If something is slow because it *waits* → async or threads
 > If something is slow because it *thinks* → processes
+
+---
+
+## Exception Groups (PEP 654) — The Companion to `TaskGroup`
+
+`TaskGroup` (seen above) introduces a wrinkle you need to understand: when **multiple** tasks in the group fail, you do not get one exception — you get an `ExceptionGroup` that holds all of them. PEP 654 added this in Python 3.11 specifically so that `TaskGroup` could report fan-out failures without silently losing any.
+
+### What `ExceptionGroup` actually is
+
+```python
+try:
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(fetch("https://a.example.com"))   # raises ConnectionError
+        tg.create_task(fetch("https://b.example.com"))   # raises TimeoutError
+        tg.create_task(fetch("https://c.example.com"))   # succeeds
+except* ConnectionError as eg:
+    # eg is an ExceptionGroup containing ONLY the ConnectionErrors
+    for err in eg.exceptions:
+        log.warning("connection failed", exc_info=err)
+except* TimeoutError as eg:
+    # separate handler for the TimeoutErrors
+    for err in eg.exceptions:
+        log.warning("timeout", exc_info=err)
+```
+
+Key mental shift:
+- A plain `except ConnectionError` **does not** catch an `ExceptionGroup` that contains a `ConnectionError`. You need `except*` (the "except-star" operator, also PEP 654) — it matches any exception in the group that is an instance of the specified type, extracts those into a new `ExceptionGroup`, and leaves the rest to propagate.
+- `except*` can match multiple branches. The remaining, unmatched exceptions in the group propagate after all matching branches run. That's different from regular `except` semantics, which run at most one branch.
+
+### `BaseExceptionGroup` vs `ExceptionGroup`
+
+- `ExceptionGroup` holds only subclasses of `Exception`.
+- `BaseExceptionGroup` can also hold `BaseException` subclasses like `KeyboardInterrupt` or `asyncio.CancelledError`.
+
+`TaskGroup` uses `BaseExceptionGroup` when cancellation is involved. Your `except* Exception` won't catch a `CancelledError` inside a group — usually what you want, but know it.
+
+### When you're most likely to hit this
+
+- `TaskGroup` with fan-out that sometimes partially fails (common in the retry / multi-upstream patterns in the Safe-and-Scalable guide).
+- Anywhere you do `asyncio.gather(..., return_exceptions=False)` under a `TaskGroup` parent — cancellation turns into an `ExceptionGroup`.
+- Your own code raising `raise ExceptionGroup("batch failed", errors)` to report aggregated failures from a batch processor.
+
+### Rule of thumb
+
+If the code you wrote uses `TaskGroup`, **all its outer error-handling must use `except*`**. Mixing `except TimeoutError:` in one place and `except* TimeoutError:` elsewhere is a recipe for an exception silently propagating past the handler that "looks right" — because the inner exception is wrapped in a group the plain `except` doesn't match.
 
 ---

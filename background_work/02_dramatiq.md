@@ -572,19 +572,25 @@ dramatiq myapp.tasks --watch .
 When a worker receives `SIGTERM` or `SIGINT`:
 1. It stops consuming new messages
 2. It waits for in-progress tasks to complete (up to a timeout)
-3. Tasks that don't finish in time receive `ShutdownNotifications` (the `Interrupted` exception)
+3. Tasks that don't finish in time get an async exception injected by the `ShutdownNotifications` middleware — specifically `dramatiq.middleware.Shutdown`, a subclass of the shared `Interrupted` base class. The companion case, `dramatiq.middleware.TimeLimitExceeded` (also an `Interrupted`), is what you get when your actor's own `time_limit` fires. Catch `Interrupted` to handle both uniformly.
+
+> **Caveat:** these exceptions are injected via `PyThreadState_SetAsyncExc`, which only takes effect the next time the target thread acquires the GIL. A task stuck in a blocking C call or `time.sleep()` will not be interrupted until it returns to Python. Use async I/O or checkpoint loops for reliable interruption.
 
 ```python
-from dramatiq.middleware import Interrupted
+from dramatiq.middleware import Interrupted, Shutdown, TimeLimitExceeded
 
 @dramatiq.actor(time_limit=600_000)
 def long_running_task():
     for chunk in get_data_chunks():
         try:
             process_chunk(chunk)
-        except Interrupted:
-            # Worker is shutting down — save progress
+        except Shutdown:
+            # Worker is shutting down — save progress and let it propagate
             save_checkpoint(chunk)
+            raise
+        except TimeLimitExceeded:
+            # Hit our own time_limit — log and decide whether to re-queue
+            logger.warning("task exceeded time_limit", extra={"chunk": chunk.id})
             raise
 ```
 
@@ -700,3 +706,78 @@ send_reminder.send_with_options(
 | Middleware | Pluggable hooks for cross-cutting concerns |
 
 > **Mental model:** Dramatiq is a mailroom. Your app writes letters (messages) and drops them in mailboxes (queues). Workers pick up letters and do the work. If a letter fails, it goes back in the mailbox for another try.
+
+---
+
+## Production Patterns
+
+### Idempotent Tasks and Deduplication
+
+Dramatiq retries failed tasks by default. Without idempotency, a retry after a partial failure double-executes the side effect. Make your actors idempotent by design.
+
+Two strategies:
+
+**1. Database-backed dedup keys.** The sending side generates a dedup key; the actor inserts it into a `processed_messages` table with a unique constraint. If the insert fails with `UniqueViolation`, the message was already processed — ack and exit.
+
+```python
+@dramatiq.actor(max_retries=5)
+def charge_customer(charge_id: str, amount_cents: int):
+    try:
+        with db.begin() as tx:
+            # Unique constraint on charge_id
+            tx.execute(
+                insert(processed_charges).values(id=charge_id, amount=amount_cents)
+            )
+            stripe.Charge.create(
+                amount=amount_cents,
+                idempotency_key=charge_id,   # forward to upstream too
+                # ...
+            )
+    except UniqueViolation:
+        log.info("charge_already_processed", charge_id=charge_id)
+        return
+```
+
+**2. Redis SET NX with a short TTL.** Faster but weaker — on Redis failover the dedup state can be lost. Acceptable when the cost of occasional double-execution is low.
+
+**3. Forward an idempotency key to upstream services.** Even if your own dedup fails, the upstream (Stripe, payment processor) can reject duplicates. See [`Safe_and_Scalable_API_calls/11_idempotency.md`](../fundamentals/fastapi/Safe_and_Scalable_API_calls/11_idempotency.md).
+
+### Dead Letter Queues (DLQ)
+
+When a task exhausts its retries, by default Dramatiq drops it. For tasks you don't want to lose, enable the DLQ behavior:
+
+- With **RabbitMQ broker**: configure a DLX (dead-letter exchange) at the RabbitMQ level. Tasks exceeding max retries route to the DLX and land in a dedicated queue you can inspect and replay.
+- With **Redis broker**: Dramatiq moves failed messages to `dramatiq:<queue_name>.DLQ` by default when `max_retries` is exhausted. The Dramatiq dashboard (or a custom reader) can display these; you replay manually.
+
+Operational checklist:
+
+- Alert on DLQ depth — a growing DLQ means something is failing consistently.
+- Before replay, check the **failure reason** (logged or in middleware). Replaying a task whose payload is malformed just burns cycles.
+- For targeted replay, write a small script that reads from the DLQ and `send_with_options(queue_name="original_queue")` back onto the main queue. Don't auto-replay from the DLQ; it's a manual-recovery tool.
+
+### Graceful Worker Shutdown
+
+Covered above in the "Graceful Shutdown" subsection. The short version:
+
+1. Catch `Shutdown` (subclass of `Interrupted`) in long-running actors; checkpoint state; re-raise so the worker knows you got the signal.
+2. Set a shutdown timeout on your orchestrator (Kubernetes `terminationGracePeriodSeconds`) longer than the worst-case task duration. Kubernetes default is 30s, which is often too short for background workers.
+3. Message **acks happen after the task returns.** If a worker is SIGKILL'd mid-task, the message returns to the queue and another worker picks it up — so your actor must be idempotent (see above).
+4. For ProcessPool-based workers: forwarding SIGTERM to child processes is your responsibility. Dramatiq handles this but custom pool configurations may not.
+
+### Dramatiq vs Celery — When to Pick Which
+
+| Concern | Dramatiq | Celery |
+|---------|----------|--------|
+| Broker support | Redis, RabbitMQ | Redis, RabbitMQ, SQS, many others |
+| Ecosystem maturity | Smaller, newer | Huge, decade-plus of plugins |
+| Code ergonomics | Clean, minimal — `@actor` and `.send()` | More decorators, more options, more footguns |
+| Defaults | Safe (retries on, idempotency friendly, clean shutdown) | Defaults often need tuning (e.g. `acks_late`, `task_reject_on_worker_lost`) |
+| Gevent support | First-class (via `dramatiq-gevent`) | First-class |
+| Scheduled / cron tasks | `dramatiq-crontab`, or use APScheduler | `celery beat` (built in) |
+| Chains / groups / pipelines | Pipelines and groups | Canvas (chains, groups, chords, callbacks) |
+| Multi-language | Python only | Python + some node clients |
+| Distributed result tracking | Optional per-actor | First-class, with backends |
+
+**Pick Celery when:** you need SQS as the broker, you need `celery beat` for scheduled tasks, you need complex workflows (chords / callbacks), or you're maintaining existing Celery code.
+
+**Pick Dramatiq when:** you're starting fresh, want saner defaults, and don't need the extra ecosystem. Most backend services fit this case.

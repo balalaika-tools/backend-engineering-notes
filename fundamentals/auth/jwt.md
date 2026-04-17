@@ -180,7 +180,7 @@ When your API receives `Authorization: Bearer <token>`, validate in this order:
 4. Verify the signature using the public key
    → If invalid: reject (token is tampered or from wrong issuer)
 5. Decode the payload (no verification needed after step 4)
-6. Check exp > now()
+6. Check exp > now() - leeway (see below)
    → If expired: reject with 401
 7. Check iss == your expected issuer URL
    → If wrong: reject (token from a different auth server)
@@ -190,6 +190,23 @@ When your API receives `Authorization: Bearer <token>`, validate in this order:
 ```
 
 **Order matters.** Verify the signature before reading any claims. A tampered payload could have any exp or iss value.
+
+### Clock-Skew Leeway on `exp` / `nbf` / `iat`
+
+Clocks drift. The issuer and your API do not share a wall clock, and even with NTP the difference between two machines is often tens to hundreds of milliseconds — worse across cloud regions or on clients behind bad NTP. Without leeway, a token that is *just barely* issued or about to expire can fail validation on one of the two sides and succeed on the other.
+
+RFC 7519 §4.1.4 explicitly allows implementers to accept **"some small leeway, usually no more than a few minutes"** on `exp` (and by symmetry `nbf`, `iat`). The conventional value is **0–60 seconds** — large enough to absorb typical NTP skew, small enough that an attacker re-using a just-expired token barely gets any extra window.
+
+```python
+# PyJWT: use the `leeway` argument
+jwt.decode(token, signing_key.key, algorithms=["RS256"], issuer=ISSUER, leeway=30)
+
+# python-jose: same option
+from jose import jwt as jose_jwt
+jose_jwt.decode(token, key, algorithms=["RS256"], options={"leeway": 30})
+```
+
+Pick a single value for your service (30s is a reasonable default), apply it to `exp`, `nbf`, and `iat` uniformly, and do not extend it further without a specific reason — every second of leeway is extra time a stolen token stays valid after its nominal expiry.
 
 ---
 

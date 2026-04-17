@@ -21,6 +21,7 @@ Redis is an **in-memory data structure store** that serves data over TCP. It is 
 | [03_caching_patterns.md](03_caching_patterns.md) | Caching Patterns | Cache-aside, write-through, write-behind, TTL strategies, eviction policies, cache stampede |
 | [04_python_clients.md](04_python_clients.md) | Python Redis Clients | redis-py sync and async, connection pooling, pipelines, transactions, FastAPI integration |
 | [05_rate_limiting.md](05_rate_limiting.md) | Rate Limiting Algorithms | Fixed window, sliding log, sliding counter (Cloudflare-style), token bucket — with atomic Lua scripts |
+| [06_ha_and_persistence.md](06_ha_and_persistence.md) | HA & Persistence | RDB/AOF, replication, Sentinel vs Cluster, failure modes, `maxmemory`/eviction, production checklist |
 
 ---
 
@@ -37,6 +38,8 @@ Redis is an **in-memory data structure store** that serves data over TCP. It is 
 **Performance / production concerns** → Check eviction policies in `03`, connection pooling in `04`.
 
 **Rate limiting / quota enforcement** → Read `05` for the four canonical algorithms. The application-layer architecture that consumes them lives in [Safe and Scalable API Calls / 09](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/09_distributed_admission_control.md).
+
+**Running Redis in production (HA, persistence, failover)** → Read `06` before committing to a deployment topology.
 
 ---
 

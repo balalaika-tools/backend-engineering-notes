@@ -103,9 +103,11 @@ call_timeout = 30 sec
 max_concurrency ≈ 30 concurrent calls
 ```
 
-This bound holds **even with retries**, provided:
+This bound holds **in steady state, even with retries**, provided:
 - Retries pass through the same rate limiter
 - Each attempt is capped by the same call timeout
+
+> **Transients can exceed it.** The formula describes the long-run equilibrium. During a burst — e.g. rate limiter allowing a brief token-bucket over-allowance, or a sudden upstream slowdown stretching call times before the new timeout kicks in — in-flight count can spike above `rate × call_timeout` for a few seconds. Size your concurrency guard (semaphore / pool) with headroom if tail latency matters.
 
 **Critical insight**:
 

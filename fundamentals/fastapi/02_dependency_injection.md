@@ -136,6 +136,8 @@ Pagination(page=2, limit=20)
 
 The same model with `Depends()` behaves completely differently than without.
 
+**Validation failure behaviour.** When a required field is missing or the wrong type, FastAPI surfaces it as a **422 Unprocessable Entity** with a Pydantic-style error body (same shape as if it were a regular query parameter validation error) — **not** as a DI resolution error. The model is constructed by FastAPI's parameter-binding layer, so validation happens there and clients see a normal request-validation response. If a field genuinely has no way to be populated from the request (e.g. the name does not match any known source and has no default), that surfaces at app startup as a `FastAPIError` from the dependency resolver rather than at request time.
+
 ---
 
 ## 5. Dependencies with Path and Headers
@@ -228,6 +230,88 @@ class CommonParams:
 def read_items(commons: CommonParams = Depends()):
     return commons
 ```
+
+---
+
+## 7b. Lifespan: Resources That Outlive a Single Request
+
+Dependencies run **per request**. Some resources — an HTTP client, a database connection pool, a loaded ML model, a Redis client — are expensive to build and cheap to share. Creating them inside a `Depends()` makes every request pay the setup/teardown cost, and on high traffic you end up opening thousands of pools a second.
+
+FastAPI's **lifespan** context manager is the canonical place for those. It runs once when the app starts, once when it shuts down, and holds long-lived objects on `app.state`. Dependencies then **read** from `app.state` instead of constructing the resource themselves.
+
+```python
+from contextlib import asynccontextmanager
+
+import httpx
+from fastapi import FastAPI, Depends, Request
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- startup: build shared resources ---
+    app.state.http = httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0),
+        limits=httpx.Limits(max_connections=100, max_keepalive_connections=50),
+    )
+    engine = create_async_engine(DATABASE_URL, pool_size=20, max_overflow=10)
+    app.state.db_sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+    app.state.engine = engine
+
+    yield  # --- app runs here ---
+
+    # --- shutdown: release resources ---
+    await app.state.http.aclose()
+    await app.state.engine.dispose()
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+# Dependencies READ from app.state — they do not own the resource
+def get_http(request: Request) -> httpx.AsyncClient:
+    return request.app.state.http
+
+
+async def get_db(request: Request):
+    async with request.app.state.db_sessionmaker() as session:
+        yield session
+
+
+@app.get("/upstream")
+async def call_upstream(http: httpx.AsyncClient = Depends(get_http)):
+    r = await http.get("https://api.example.com/thing")
+    return r.json()
+```
+
+### Why not `@app.on_event("startup")` / `@app.on_event("shutdown")`?
+
+Those decorators are **deprecated** since FastAPI 0.93 / Starlette 0.26 (2023). They still work but will not get new features, and they do not integrate with async context managers cleanly — a `try/finally` pair of decorated functions cannot express "open this thing, yield, close it" as safely as `asynccontextmanager` does. New apps should use `lifespan=`.
+
+### Lifespan mental model
+
+| Where the resource lives | Use | Example |
+|--------------------------|-----|---------|
+| Entire process lifetime | **Lifespan** → `app.state` | HTTP client, DB engine/pool, ML model, Redis client |
+| Single request | **`Depends()` with `yield`** | DB *session* (checked out of the pool), auth context, transaction |
+| Per call | Plain function | Request ID, pagination params |
+
+**Rule of thumb:** if the resource is expensive to construct or holds a pool/socket/open file, put it in lifespan. If it has request-scoped state, put it in a dependency. If it is a pure value, put it in a plain function.
+
+### Testing
+
+`lifespan` runs under `TestClient` too:
+
+```python
+from fastapi.testclient import TestClient
+
+with TestClient(app) as client:     # runs startup
+    r = client.get("/upstream")
+    assert r.status_code == 200
+# runs shutdown on exit
+```
+
+Use `app.dependency_overrides[get_http] = lambda: fake_client` to swap in a fake without touching lifespan.
 
 ---
 

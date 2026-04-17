@@ -22,6 +22,7 @@
 | [06](06_websockets.md) | WebSockets | Connections, rooms, auth, heartbeat, scaling |
 | [07](07_error_handling.md) | Error Responses | Exception hierarchy, global handlers, consistent shapes |
 | [08](08_streaming.md) | Streaming | StreamingResponse, SSE, file downloads, backpressure |
+| [09](09_background_tasks_and_routers.md) | BackgroundTasks & APIRouter | Fire-and-forget after response, app structure, OpenAPI customization |
 
 ### External API Calls
 
@@ -37,6 +38,9 @@
   | [06](Safe_and_Scalable_API_calls/06_advanced_patterns.md) | Advanced Patterns | Circuit breakers, priority queues |
   | [07](Safe_and_Scalable_API_calls/07_streaming_patterns.md) | Streaming Patterns | SSE, streaming timeouts |
   | [08](Safe_and_Scalable_API_calls/08_streaming_advanced.md) | Streaming Advanced | Multi-stream, aggregation |
+  | [09](Safe_and_Scalable_API_calls/09_distributed_admission_control.md) | Distributed Admission Control | Redis-centric admission, atomic Lua, retries & quota accounting |
+  | [10](Safe_and_Scalable_API_calls/10_llm_token_economics.md) | LLM Token Economics | Reserve → Retry → Reconcile, cost observability, retry budgets |
+  | [11](Safe_and_Scalable_API_calls/11_idempotency.md) | Idempotency Keys | Safe POST retries, dedup state machine, Postgres + Redis backends |
 
 ---
 

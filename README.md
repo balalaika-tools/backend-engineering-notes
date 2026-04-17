@@ -57,6 +57,8 @@ python-backend-notes/
 
 | Guide | Description |
 |-------|-------------|
+| [Typing](fundamentals/core_concepts/typing.md) | `Optional` (preferred), `Literal`, `TypedDict`, `TypeVar`, `Protocol` |
+| [Context Managers](fundamentals/core_concepts/context_managers.md) | `with` / `async with`, `@contextmanager`, `ExitStack`, pitfalls |
 | [Decorators](fundamentals/core_concepts/decorators.md) | `@` syntax, `functools.wraps`, parameterized decorators |
 | [Exceptions](fundamentals/core_concepts/exceptions.md) | Propagation, `raise` variants, `raise from`, production patterns |
 | [Logging](fundamentals/core_concepts/logging/README.md) | Logger hierarchy, `propagate`, handler/formatter pipeline, per-module vs universal |
@@ -101,6 +103,7 @@ python-backend-notes/
 | [06 — WebSockets](fundamentals/fastapi/06_websockets.md) | Connections, rooms, auth, heartbeat, scaling with Redis |
 | [07 — Error Responses](fundamentals/fastapi/07_error_handling.md) | Exception hierarchy, global handlers, consistent error shapes |
 | [08 — Streaming](fundamentals/fastapi/08_streaming.md) | StreamingResponse, SSE, file downloads, backpressure |
+| [09 — BackgroundTasks & APIRouter](fundamentals/fastapi/09_background_tasks_and_routers.md) | Fire-and-forget, app structure, OpenAPI customization |
 
 #### Safe & Scalable API Calls — [full README](fundamentals/fastapi/Safe_and_Scalable_API_calls/README.md)
 
@@ -115,7 +118,8 @@ python-backend-notes/
 | [07 — Streaming Patterns](fundamentals/fastapi/Safe_and_Scalable_API_calls/07_streaming_patterns.md) | SSE, streaming timeouts |
 | [08 — Streaming Advanced](fundamentals/fastapi/Safe_and_Scalable_API_calls/08_streaming_advanced.md) | Multi-stream, aggregation |
 | [09 — Distributed Admission Control](fundamentals/fastapi/Safe_and_Scalable_API_calls/09_distributed_admission_control.md) | Cross-pod concurrency limits, Redis-backed atomic limiters |
-| [10 — LLM Token Economics](fundamentals/fastapi/Safe_and_Scalable_API_calls/10_llm_token_economics.md) | Per-tenant budgets, token accounting, cost-aware rate limits |
+| [10 — LLM Token Economics](fundamentals/fastapi/Safe_and_Scalable_API_calls/10_llm_token_economics.md) | Per-tenant budgets, token accounting, cost observability, retry budgets |
+| [11 — Idempotency Keys](fundamentals/fastapi/Safe_and_Scalable_API_calls/11_idempotency.md) | Safe POST retries, dedup state machine, Postgres + Redis implementations |
 
 #### Database — [full README](fundamentals/database/README.md)
 
@@ -164,6 +168,7 @@ python-backend-notes/
 | [03 — Caching Patterns](infrastructure/redis/03_caching_patterns.md) | Cache-aside, write-through, TTL, eviction, stampede prevention |
 | [04 — Python Clients](infrastructure/redis/04_python_clients.md) | redis-py sync/async, connection pooling, pipelines, FastAPI integration |
 | [05 — Rate Limiting](infrastructure/redis/05_rate_limiting.md) | Token bucket, sliding/fixed window, atomic Lua scripts |
+| [06 — HA & Persistence](infrastructure/redis/06_ha_and_persistence.md) | RDB/AOF, replication, Sentinel vs Cluster, failure modes, `maxmemory` |
 
 ---
 

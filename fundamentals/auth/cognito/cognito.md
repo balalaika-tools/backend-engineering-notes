@@ -228,3 +228,80 @@ For JWT theory and OAuth concepts, see the parent folder:
 |------|-------------|
 | [../jwt.md](../jwt.md) | JWT structure, JWKS, generic validation algorithm, Python utilities |
 | [../oauth2.md](../oauth2.md) | OAuth 2.0 grant types, scopes, resource servers — framework-agnostic |
+
+---
+
+## Pricing & Free Tier (Plan This Early)
+
+Cognito pricing scales per **Monthly Active User (MAU)**, not per request.
+
+- **Free tier** (always on, not time-limited): **50,000 MAU** for user-pool authentication. A user is "active" if any auth operation happens on them in the month (login, token refresh, sign-up, etc.).
+- Above the free tier, pricing steps down with volume — roughly **$0.0055 per MAU** for the first tier, cheaper at scale. Current rates at <https://aws.amazon.com/cognito/pricing/>.
+- **Advanced security features** (compromised-credential checks, adaptive authentication) are a separate, per-MAU surcharge — don't enable without budgeting.
+- **SAML / OIDC federation** users are priced differently, at a higher tier.
+- **Machine-to-machine tokens** (client_credentials) are priced per request, not per MAU, since there's no "user" to be monthly-active.
+
+For planning: a 100k-MAU app is in the paid tier for about `50,000 × $0.0055 ≈ $275/month`. Not a huge number, but worth sizing before the invoice appears.
+
+---
+
+## Federation — Social Login and Enterprise SSO
+
+Cognito can federate identity from external providers. Two categories:
+
+### Social federation (consumer apps)
+
+Built-in providers (Google, Facebook, Amazon, Sign-in-with-Apple) + any generic OIDC provider. The flow:
+
+1. User clicks "Sign in with Google" in your app.
+2. Your app redirects to the Cognito Hosted UI with `identity_provider=Google`.
+3. Cognito redirects to Google for the OAuth dance.
+4. Google sends the user back to Cognito with an auth code; Cognito exchanges it for the user's info.
+5. Cognito either **creates a new user in your pool** (first time) or looks up the existing linked user, then issues **your pool's** JWTs (not Google's).
+
+The important property: your backend only ever sees Cognito-issued tokens. It validates them using the same JWKS as password-authenticated users — no per-provider code. Federation is configured declaratively on the user pool.
+
+```python
+cognito_client.create_identity_provider(
+    UserPoolId=POOL_ID,
+    ProviderName='Google',
+    ProviderType='Google',
+    ProviderDetails={
+        'client_id': '...',
+        'client_secret': '...',
+        'authorize_scopes': 'openid email profile',
+    },
+    AttributeMapping={
+        'email': 'email',
+        'given_name': 'given_name',
+    },
+)
+```
+
+### SAML / OIDC federation (enterprise SSO)
+
+For B2B apps where customers' employees log in via their own IdP (Okta, Azure AD, Ping). Same mechanism: configure a SAML provider in your user pool (upload the customer's IdP metadata XML); your app routes "Sign in with Corp SSO" buttons to the Cognito hosted UI with the right `identity_provider`; Cognito handles the SAML handshake; users land in your pool with claims mapped from SAML attributes.
+
+Federation keeps your code the same — the complexity moves to pool configuration. Budget for tenant provisioning and for claim-mapping edge cases (IdPs disagree on attribute names).
+
+---
+
+## ALB ↔ Cognito Native Integration
+
+If your API runs behind an AWS Application Load Balancer, you can **offload authentication to the ALB itself**. ALB handles the OAuth dance with Cognito, sets a session cookie, and forwards authenticated requests to your origin with the user's identity in a signed header.
+
+```
+Browser  →  ALB (authenticates via Cognito)  →  Your FastAPI pod
+                ↑                                       ↓
+            sets cookie                          reads x-amzn-oidc-data header
+```
+
+- ALB listener rule "Action → Authenticate (Cognito)". ALB redirects unauthenticated requests to the Cognito hosted UI.
+- On successful auth, ALB sets an AWS-signed session cookie and forwards the request with an `x-amzn-oidc-data` header containing a signed JWT with the user's claims.
+- Your origin **still validates the JWT** (the signing key is at a well-known ALB URL) — don't trust the header without verification.
+
+**Pros:** no login code in your app, one fewer auth round trip per request (ALB caches the session), can add auth to legacy apps without touching code.
+
+**Cons:** browser-centric — API clients (mobile, CLI, S2S) still need direct Cognito tokens. Only one Cognito configuration per listener rule — multi-tenant setups with per-tenant Cognito pools don't fit cleanly.
+
+When ALB-Cognito fits (web-only SaaS with one Cognito pool), it's genuinely less code to maintain.

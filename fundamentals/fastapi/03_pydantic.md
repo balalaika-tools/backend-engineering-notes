@@ -1057,7 +1057,7 @@ class Good(BaseModel):
     metadata: dict = Field(default_factory=dict)
 ```
 
-Note: Pydantic v2 actually handles `[]` and `{}` safely by deep-copying defaults, unlike plain Python classes. But using `default_factory` is explicit and avoids confusion.
+Note: Pydantic v2 handles `[]` and `{}` safely for the **default** case — it deep-copies defaults at instantiation, unlike plain Python classes. This does **not** protect you from mutable-object aliasing in general: if a caller passes a list or dict in as a field value (not as a default) and then mutates it after construction, or passes the same object into multiple model instances, those instances share the object unless you also enable `model_config["validate_assignment"] = True` or explicitly copy on input. Using `default_factory` is still the recommended style because it is explicit and avoids confusion.
 
 ### Mistake 2: Confusing Optional with = None
 
@@ -1214,3 +1214,76 @@ def create_user(data: UserCreate):
 ### Key Insight
 
 > **Pydantic models are contracts.** They define what your API accepts and returns. Treat them as the boundary between untrusted input and your application logic. Everything inside that boundary is guaranteed valid.
+
+---
+
+## Appendix — Pydantic v1 → v2 Migration Cheatsheet
+
+v2 is a ground-up rewrite (the core is now in Rust). Most code ports with **renames**, but a handful of behaviors changed and a handful of APIs were removed. If you are working in a codebase that still has v1 models or are reading an older tutorial, this table saves you a grep session.
+
+### Method renames (model instance)
+
+| Pydantic v1 | Pydantic v2 | Notes |
+|-------------|-------------|-------|
+| `.dict()` | `.model_dump()` | Same args (`include`, `exclude`, `by_alias`, `exclude_unset`, …) |
+| `.json()` | `.model_dump_json()` | |
+| `.copy()` | `.model_copy()` | |
+| `Model.parse_obj(data)` | `Model.model_validate(data)` | |
+| `Model.parse_raw(json_str)` | `Model.model_validate_json(json_str)` | |
+| `Model.schema()` | `Model.model_json_schema()` | |
+| `Model.construct(...)` | `Model.model_construct(...)` | Skip validation |
+| `Model.update_forward_refs()` | `Model.model_rebuild()` | |
+
+### Validators
+
+| Pydantic v1 | Pydantic v2 | Notes |
+|-------------|-------------|-------|
+| `@validator("x")` | `@field_validator("x")` | **Must** also add `@classmethod` below it in v2 |
+| `@validator("x", pre=True)` | `@field_validator("x", mode="before")` | |
+| `@validator("x", always=True)` | `@field_validator("x", mode="before")` + handle missing | "always" removed |
+| `@root_validator` | `@model_validator(mode="before")` or `mode="after"` | |
+| `@root_validator(pre=True)` | `@model_validator(mode="before")` | Receives raw dict |
+| `@root_validator(pre=False)` | `@model_validator(mode="after")` | Receives the constructed model; return `self` |
+| `values` arg (`def validate(cls, v, values)`) | `info.data` on the `ValidationInfo` arg | `def validate(cls, v, info): info.data["other"]` |
+
+### Config
+
+| Pydantic v1 | Pydantic v2 | Notes |
+|-------------|-------------|-------|
+| `class Config:` inside the model | `model_config = ConfigDict(...)` | Class-level assignment, not a nested class |
+| `Config.allow_population_by_field_name = True` | `populate_by_name=True` | Renamed |
+| `Config.orm_mode = True` | `from_attributes=True` | Renamed; same behavior |
+| `Config.anystr_strip_whitespace = True` | `str_strip_whitespace=True` | |
+| `Config.anystr_lower` / `anystr_upper` | `str_to_lower` / `str_to_upper` | |
+| `Config.extra = "forbid"` | `extra="forbid"` | Same values: `ignore` / `allow` / `forbid` |
+| `Config.json_encoders = {...}` | Removed — use field-level serializers (`@field_serializer`) or `@model_serializer` | Breaking change |
+
+### Field
+
+| Pydantic v1 | Pydantic v2 | Notes |
+|-------------|-------------|-------|
+| `Field(..., regex="^[a-z]+$")` | `Field(..., pattern="^[a-z]+$")` | Renamed to match JSON Schema |
+| `Field(const=x)` | Use a `Literal[x]` type | `const` removed |
+| `Field(allow_mutation=False)` | `Field(frozen=True)` | |
+
+### Settings
+
+| Pydantic v1 | Pydantic v2 |
+|-------------|-------------|
+| `from pydantic import BaseSettings` | `from pydantic_settings import BaseSettings` (separate package, `pip install pydantic-settings`) |
+
+### Behavior changes that silently break
+
+- **`strict` mode** — v1 happily coerced `"1"` → `1`. v2 still does by default, but strict-mode fields raise; be deliberate about `Field(..., strict=True)` or `model_config = ConfigDict(strict=True)` on security-sensitive parsing.
+- **`Optional[X]` without a default is still required in both versions.** No change — just noting because people re-learn this during migrations.
+- **`float` vs `Decimal`** — v2 is stricter about not losing precision. Code that passed a `Decimal` into a `float` field may now need an explicit type change.
+- **Custom types** — `__get_validators__` and `__modify_schema__` are gone. Use `__get_pydantic_core_schema__` and `__get_pydantic_json_schema__`.
+
+### Migration strategy
+
+1. Upgrade dependency: `pip install 'pydantic>=2'` and `pip install pydantic-settings` if you use `BaseSettings`.
+2. Run with `bump-pydantic` (official migration tool) — it handles the mechanical renames.
+3. Grep for what the tool cannot infer: `parse_obj`, `.dict(`, `.json(`, `Config`, `@root_validator`, `@validator`, `BaseSettings`, `json_encoders`. Fix each.
+4. Re-run your test suite; most remaining breaks are validator signatures (`info` arg) and removed `json_encoders`.
+
+v1 is in security-maintenance only; new code should be v2.
