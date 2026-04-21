@@ -4,6 +4,8 @@
 
 [![Redis](https://img.shields.io/badge/Redis-7.x-DC382D.svg?logo=redis&logoColor=white)](https://redis.io)
 [![Docker](https://img.shields.io/badge/Docker-latest-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com)
+[![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-000000?style=flat&logo=opentelemetry)](https://opentelemetry.io)
+[![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=flat&logo=prometheus)](https://prometheus.io)
 
 ---
 
@@ -12,6 +14,7 @@
 | Section | Description |
 |---------|-------------|
 | [redis/](redis/README.md) | Data structures, pub/sub, streams, caching patterns, Python clients |
+| [observability/](observability/README.md) | OpenTelemetry primer, Python SDK setup, metrics export methods, OTel Collector config |
 
 ---
 
