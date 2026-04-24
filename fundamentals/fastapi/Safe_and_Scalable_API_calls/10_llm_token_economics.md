@@ -121,7 +121,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Optional, Callable, Awaitable
-import redis.asyncio as aioredis
+import redis.asyncio as redis
 from fastapi import HTTPException
 
 
@@ -131,7 +131,7 @@ def today_key() -> str:
 
 @asynccontextmanager
 async def reserve_tokens(
-    r: aioredis.Redis,
+    r: redis.Redis,
     user_id: str,
     estimated_tokens: int,
     daily_limit: int,

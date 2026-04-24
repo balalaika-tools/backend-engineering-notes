@@ -135,6 +135,10 @@ class PodAwareCircuitBreaker:
             else:
                 raise CircuitBreakerOpen()
     
+    async def is_open(self) -> bool:
+        """Non-raising check used by adaptive retry decisions."""
+        return await self._get_state() == "open"
+    
     async def record_success(self) -> None:
         state = await self._get_state()
         
@@ -503,6 +507,7 @@ async def complete_llm_call(
     # 2. User rate limit (global)
     await check_user_rate_limit(user_id, tier)
     
+    started = time.monotonic()
     try:
         # 3. Queue timeout
         async with asyncio.timeout(5):
@@ -527,7 +532,7 @@ async def complete_llm_call(
             
             # Success
             await breaker.record_success()
-            local_metrics.record_call(success=True, duration=...)
+            local_metrics.record_call(success=True, duration=time.monotonic() - started)
             return result
     
     except CircuitBreakerOpen:
@@ -538,12 +543,12 @@ async def complete_llm_call(
     
     except asyncio.TimeoutError:
         await breaker.record_failure()
-        local_metrics.record_call(success=False, duration=...)
+        local_metrics.record_call(success=False, duration=time.monotonic() - started)
         raise HTTPException(504, "Request timeout")
     
     except httpx.HTTPStatusError as e:
         await breaker.record_failure()
-        local_metrics.record_call(success=False, duration=...)
+        local_metrics.record_call(success=False, duration=time.monotonic() - started)
         raise HTTPException(502, f"Vendor error: {e.response.status_code}")
 ```
 

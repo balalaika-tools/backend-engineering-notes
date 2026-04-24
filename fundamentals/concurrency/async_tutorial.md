@@ -40,10 +40,10 @@ coro = fetch_data()  # not running
 
 * A **Task** is a coroutine scheduled on the event loop
 * Created with `asyncio.create_task`
-* Starts running immediately
+* Starts running as soon as the event loop gets a chance to run it
 
 ```python
-task = asyncio.create_task(fetch_data())  # running
+task = asyncio.create_task(fetch_data())  # scheduled
 ```
 
 ➡ Coroutine = recipe
@@ -86,6 +86,7 @@ What this means:
 * The coroutine runs **concurrently**
 * The caller continues immediately
 * You must `await` the task later (or use a `TaskGroup`)
+* With eager task execution enabled, the coroutine may begin during task creation
 
 Mental model:
 
@@ -253,23 +254,23 @@ Task exception was never retrieved
 ---
 
 ## Async in FastAPI (Real Example)
- 
- Each request handler is a coroutine.
- 
+
+Each request handler is a coroutine.
+
 ```python
 @app.get("/sleep/{n}")
 async def sleep_endpoint(n: int):
     await asyncio.sleep(5)
     return {"request": n}
 ```
- 
- Multiple requests:
- 
- * overlap in time
- * do not block each other
- * as long as they await I/O
- 
- ---
+
+Multiple requests:
+
+* overlap in time
+* do not block each other
+* as long as they await I/O
+
+---
 
 ## `async with`: Asynchronous Context Managers
 
@@ -364,13 +365,14 @@ def crunch_blocking(n):
     for i in range(10**8):
         total += i
     return total
- 
+
 async def crunch_async(n):
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(pool, crunch_blocking, n)
 
 # later do --> pool.shutdown(wait=True)
- ```
+```
+
 Threads are useful for:
 
 * blocking I/O
@@ -496,7 +498,7 @@ Async is not a replacement for job queues.
 
 ## Exception Groups (PEP 654) — The Companion to `TaskGroup`
 
-`TaskGroup` (seen above) introduces a wrinkle you need to understand: when **multiple** tasks in the group fail, you do not get one exception — you get an `ExceptionGroup` that holds all of them. PEP 654 added this in Python 3.11 specifically so that `TaskGroup` could report fan-out failures without silently losing any.
+`TaskGroup` (seen above) introduces a wrinkle you need to understand: when one or more tasks fail with non-cancellation exceptions, the group raises an `ExceptionGroup` or `BaseExceptionGroup`. PEP 654 added these groups in Python 3.11 so fan-out failures can be reported without silently losing any.
 
 ### What `ExceptionGroup` actually is
 
@@ -525,16 +527,21 @@ Key mental shift:
 - `ExceptionGroup` holds only subclasses of `Exception`.
 - `BaseExceptionGroup` can also hold `BaseException` subclasses like `KeyboardInterrupt` or `asyncio.CancelledError`.
 
-`TaskGroup` uses `BaseExceptionGroup` when cancellation is involved. Your `except* Exception` won't catch a `CancelledError` inside a group — usually what you want, but know it.
+`TaskGroup` does not group ordinary child-task cancellations: `asyncio.CancelledError` is used internally and normally excluded from the final exception group. `BaseExceptionGroup` is mainly relevant when base exceptions such as `KeyboardInterrupt` or `SystemExit` are involved.
 
 ### When you're most likely to hit this
 
 - `TaskGroup` with fan-out that sometimes partially fails (common in the retry / multi-upstream patterns in the Safe-and-Scalable guide).
-- Anywhere you do `asyncio.gather(..., return_exceptions=False)` under a `TaskGroup` parent — cancellation turns into an `ExceptionGroup`.
+- Anywhere you aggregate several independent operations and want to report more than one failure.
 - Your own code raising `raise ExceptionGroup("batch failed", errors)` to report aggregated failures from a batch processor.
 
 ### Rule of thumb
 
-If the code you wrote uses `TaskGroup`, **all its outer error-handling must use `except*`**. Mixing `except TimeoutError:` in one place and `except* TimeoutError:` elsewhere is a recipe for an exception silently propagating past the handler that "looks right" — because the inner exception is wrapped in a group the plain `except` doesn't match.
+If the code you wrote uses `TaskGroup` and you want to catch child-task failures by type, use `except*`. A plain `except TimeoutError:` only works for a timeout raised directly by the surrounding coroutine, not for a `TimeoutError` wrapped inside an `ExceptionGroup`.
 
 ---
+
+## References
+
+* [`asyncio` coroutines, tasks, `TaskGroup`, and cancellation](https://docs.python.org/3/library/asyncio-task.html)
+* [PEP 654 — Exception Groups and `except*`](https://peps.python.org/pep-0654/)

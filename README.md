@@ -72,9 +72,10 @@ python-backend-notes/
 
 | Guide | Description |
 |-------|-------------|
-| [Threads vs Processes vs Async](fundamentals/concurrency/threads_vs_processes_vs_async.md) | GIL, when to use each approach |
-| [Threads and Processes](fundamentals/concurrency/threads_and_processes.md) | `ThreadPoolExecutor`, `ProcessPoolExecutor`, `submit`, `map` |
+| [Threads vs Processes vs Async](fundamentals/concurrency/threads_vs_processes_vs_async.md) | GIL, free-threaded Python (3.14), when to use threads vs processes vs async |
+| [Threads and Processes](fundamentals/concurrency/threads_and_processes.md) | `ThreadPoolExecutor`, `ProcessPoolExecutor`, `InterpreterPoolExecutor`, `submit`, `map`, `as_completed` |
 | [Async Tutorial](fundamentals/concurrency/async_tutorial.md) | Event loop, coroutines vs tasks, `TaskGroup`, `run_in_executor` |
+| [Production Patterns](fundamentals/concurrency/production_patterns.md) | Semaphores, queues, timeouts, cancellation, `contextvars`, graceful shutdown |
 
 #### HTTP Clients
 
@@ -203,7 +204,7 @@ python-backend-notes/
 
 | Guide | Description |
 |-------|-------------|
-| [FastAPI Testing](operations/testing/fastapi_testing.md) | pytest, AsyncClient, dependency overrides, fixtures, mocking |
+| [FastAPI Testing](operations/testing/README.md) | 12-part guide — pytest, unit testing, endpoint testing, dependency overrides, fixtures, DB & mocking, coverage & CI |
 | [Docker & Deployment](operations/deployment/docker_and_deployment.md) | Multi-stage builds, Uvicorn, Gunicorn, health checks, graceful shutdown |
 
 ---
@@ -220,7 +221,7 @@ python-backend-notes/
 3. [HTTPX](fundamentals/httpx/README.md) — HTTP client internals
 4. [FastAPI 01-03](fundamentals/fastapi/README.md) — parameters, DI, Pydantic
 5. [Database](fundamentals/database/README.md) — SQL foundations → drivers → ORM → async patterns
-6. [Testing](operations/testing/fastapi_testing.md) — pytest + FastAPI
+6. [Testing](operations/testing/README.md) — pytest + FastAPI, unit → endpoint → coverage
 
 ### Building a Production API
 

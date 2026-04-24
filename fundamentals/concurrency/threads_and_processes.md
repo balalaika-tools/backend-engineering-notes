@@ -7,6 +7,7 @@ They abstract away low-level thread/process management and expose a simple model
 
 - **ThreadPoolExecutor**: multiple *threads* in the same Python process
 - **ProcessPoolExecutor**: multiple *processes* (separate Python interpreters)
+- **InterpreterPoolExecutor** (Python 3.14+): multiple isolated interpreters in one process, each with its own GIL
 
 ---
 
@@ -108,6 +109,7 @@ if __name__ == "__main__":
 * Results are returned **in input order**
 * Minimal boilerplate
 * Limited per-task control
+* In Python 3.14+, `buffersize=...` can limit how many unfinished tasks are submitted ahead of consumption
 
 ```python
 from concurrent.futures import ThreadPoolExecutor
@@ -117,6 +119,12 @@ def f(x):
 
 with ThreadPoolExecutor() as ex:
     for y in ex.map(f, range(10)):
+        print(y)
+```
+
+```python
+with ThreadPoolExecutor(max_workers=20) as ex:
+    for y in ex.map(f, range(10_000), buffersize=100):
         print(y)
 ```
 
@@ -194,11 +202,13 @@ with ThreadPoolExecutor() as ex:
         print("Timed out, cancel attempt:", fut.cancel())
 ```
 
-Immediate shutdown:
+Stop accepting new work and cancel jobs that have not started yet:
 
 ```python
 ex.shutdown(wait=False, cancel_futures=True)
 ```
+
+This does not kill work that is already running. It only cancels pending futures.
 
 ---
 
@@ -208,17 +218,20 @@ ex.shutdown(wait=False, cancel_futures=True)
 
 * Often much higher than CPU cores (e.g. 20–200)
 * Depends on latency, sockets, and external limits
+* The default is conservative: `min(32, (os.process_cpu_count() or 1) + 4)` in Python 3.13+
 
 ### ProcessPoolExecutor (CPU-bound)
 
-* Usually close to `os.cpu_count()`
+* Usually close to `os.process_cpu_count()` (or `os.cpu_count()` on older Python)
 * Too many processes increase context switching and IPC overhead
 
 ```python
 import os
 from concurrent.futures import ProcessPoolExecutor
 
-with ProcessPoolExecutor(max_workers=os.cpu_count()) as ex:
+workers = os.process_cpu_count() or 1
+
+with ProcessPoolExecutor(max_workers=workers) as ex:
     ...
 ```
 
@@ -249,6 +262,33 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+
+This guard is also a good habit on Linux. In Python 3.14, `ProcessPoolExecutor` changed away from `fork` as the default process start method, so code that accidentally depended on fork-specific inheritance should pass an explicit `mp_context`.
+
+```python
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
+
+ctx = multiprocessing.get_context("fork")
+
+with ProcessPoolExecutor(mp_context=ctx) as ex:
+    ...
+```
+
+Prefer the default start method unless you have measured a real need for `fork`.
+
+---
+
+## Python 3.14+: `InterpreterPoolExecutor`
+
+`InterpreterPoolExecutor` sits between threads and processes:
+
+* Workers are threads, but each runs in its own isolated Python interpreter
+* Each interpreter has its own GIL, so pure Python code can use multiple cores
+* Mutable objects cannot be shared directly between interpreters
+* Callables, arguments, and return values are serialized with `pickle`
+
+It can be useful when you want CPU parallelism without separate processes, but `ProcessPoolExecutor` remains the simpler default until the subinterpreter ecosystem is mature.
 
 ---
 
@@ -336,7 +376,8 @@ with ProcessPoolExecutor() as ex:
 
 ## References
 
-* `concurrent.futures.ThreadPoolExecutor`
-* `concurrent.futures.ProcessPoolExecutor`
-* `concurrent.futures.Future`
-* helpers: `as_completed`, `wait`
+* [`concurrent.futures` docs](https://docs.python.org/3/library/concurrent.futures.html)
+* [`ThreadPoolExecutor`](https://docs.python.org/3/library/concurrent.futures.html#threadpoolexecutor)
+* [`ProcessPoolExecutor`](https://docs.python.org/3/library/concurrent.futures.html#processpoolexecutor)
+* [`InterpreterPoolExecutor`](https://docs.python.org/3/library/concurrent.futures.html#interpreterpoolexecutor)
+* Helpers: `as_completed`, `wait`

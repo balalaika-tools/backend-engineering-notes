@@ -118,26 +118,32 @@ async def stream_llm(payload: dict) -> AsyncIterator[str]:
     - No total timeout (per-chunk timeout via httpx)
     """
     
-    # Queue timeout: covers acquiring resources and starting stream
-    async with asyncio.timeout(5):
-        async with llm_rate:
-            async with llm_sem:
-                # NOTE: Semaphore is held for ENTIRE stream duration
-                
-                async with client.stream(
+    # Acquire resources + open the stream under a short queue timeout.
+    # The timeout MUST NOT wrap the streaming loop itself, or the whole
+    # stream would be cancelled after 5s regardless of per-chunk progress.
+    async with llm_rate:
+        async with llm_sem:
+            # NOTE: Semaphore is held for ENTIRE stream duration.
+
+            async with asyncio.timeout(5):
+                stream_cm = client.stream(
                     "POST",
                     "https://api.openai.com/v1/chat/completions",
                     json={**payload, "stream": True},
-                ) as response:
-                    response.raise_for_status()
-                    
-                    # Yield chunks as they arrive
-                    # httpx read timeout applies per-chunk
-                    async for line in response.aiter_lines():
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data != "[DONE]":
-                                yield data
+                )
+                response = await stream_cm.__aenter__()
+                response.raise_for_status()
+
+            try:
+                # Stream body: NO wall-clock timeout here.
+                # httpx read timeout applies per-chunk (resets each chunk).
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]
+                        if data != "[DONE]":
+                            yield data
+            finally:
+                await stream_cm.__aexit__(None, None, None)
 ```
 
 ---
@@ -312,23 +318,27 @@ async def stream_llm_with_retry(payload: dict) -> AsyncIterator[str]:
     
     for attempt in range(3):
         try:
-            async with asyncio.timeout(5):  # Queue timeout
-                async with llm_rate:
-                    async with llm_sem:
-                        
-                        async with client.stream(...) as response:
-                            response.raise_for_status()  # Check before streaming
-                            
-                            # Once we start yielding, no retry possible
-                            first_chunk = True
-                            async for line in response.aiter_lines():
-                                if first_chunk:
-                                    first_chunk = False
-                                    # Past this point, retry is not possible
-                                
-                                yield line
-                            
-                            return  # Stream completed successfully
+            async with llm_rate:
+                async with llm_sem:
+                    # Queue timeout wraps acquisition + stream open only.
+                    async with asyncio.timeout(5):
+                        stream_cm = client.stream(...)
+                        response = await stream_cm.__aenter__()
+                        response.raise_for_status()  # Check before streaming
+
+                    try:
+                        # Once we start yielding, no retry possible.
+                        first_chunk = True
+                        async for line in response.aiter_lines():
+                            if first_chunk:
+                                first_chunk = False
+                                # Past this point, retry is not possible.
+
+                            yield line
+                    finally:
+                        await stream_cm.__aexit__(None, None, None)
+
+                    return  # Stream completed successfully
         
         except httpx.HTTPStatusError as e:
             if 500 <= e.response.status_code < 600 and attempt < 2:
@@ -424,32 +434,37 @@ async def generate_sse_stream(
     """
     
     try:
-        async with asyncio.timeout(5):  # Queue timeout
-            async with llm_rate:
-                async with llm_sem:
-                    
-                    async with client.stream(
+        async with llm_rate:
+            async with llm_sem:
+                # Queue timeout wraps ONLY acquisition + stream open.
+                # It must NOT wrap the streaming loop.
+                async with asyncio.timeout(5):
+                    stream_cm = client.stream(
                         "POST",
                         "https://api.openai.com/v1/chat/completions",
                         json={**payload, "stream": True},
                         headers={"Authorization": f"Bearer {API_KEY}"},
-                    ) as response:
-                        response.raise_for_status()
-                        
-                        async for line in response.aiter_lines():
-                            # Check disconnect
-                            if await request.is_disconnected():
+                    )
+                    response = await stream_cm.__aenter__()
+                    response.raise_for_status()
+
+                try:
+                    async for line in response.aiter_lines():
+                        # Check disconnect
+                        if await request.is_disconnected():
+                            break
+
+                        if line.startswith("data: "):
+                            data = line[6:]
+                            if data == "[DONE]":
+                                yield "data: [DONE]\n\n"
                                 break
-                            
-                            if line.startswith("data: "):
-                                data = line[6:]
-                                if data == "[DONE]":
-                                    yield "data: [DONE]\n\n"
-                                    break
-                                else:
-                                    # Forward chunk
-                                    yield f"data: {data}\n\n"
-    
+                            else:
+                                # Forward chunk
+                                yield f"data: {data}\n\n"
+                finally:
+                    await stream_cm.__aexit__(None, None, None)
+
     except asyncio.TimeoutError:
         yield f"data: {json.dumps({'error': 'timeout'})}\n\n"
     

@@ -12,9 +12,10 @@
 
 | File | Topic | Description |
 |------|-------|-------------|
-| [threads_vs_processes_vs_async.md](threads_vs_processes_vs_async.md) | Overview | GIL, when to use threads vs processes vs async |
-| [threads_and_processes.md](threads_and_processes.md) | Executors | `ThreadPoolExecutor`, `ProcessPoolExecutor`, `submit`, `map`, `as_completed` |
+| [threads_vs_processes_vs_async.md](threads_vs_processes_vs_async.md) | Overview | GIL, free-threaded Python (3.14), when to use threads vs processes vs async |
+| [threads_and_processes.md](threads_and_processes.md) | Executors | `ThreadPoolExecutor`, `ProcessPoolExecutor`, `InterpreterPoolExecutor`, `submit`, `map`, `as_completed` |
 | [async_tutorial.md](async_tutorial.md) | Asyncio | Event loop, coroutines vs tasks, `TaskGroup`, `run_in_executor` |
+| [production_patterns.md](production_patterns.md) | Production | Semaphores, queues, timeouts, cancellation, `contextvars`, graceful shutdown |
 
 ---
 
@@ -23,6 +24,7 @@
 1. **Threads vs Processes vs Async** — understand the landscape and the GIL
 2. **Threads and Processes** — learn the executor APIs
 3. **Async Tutorial** — learn asyncio patterns
+4. **Production Patterns** — what you need before shipping: bounding, timeouts, cancellation, shutdown
 
 ---
 

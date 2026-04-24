@@ -99,10 +99,11 @@ The **store result** step must happen in the same transaction as the effect it r
 ```python
 import hashlib
 import json
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request, status
-from sqlalchemy import Column, String, Integer, JSON, DateTime, UniqueConstraint, func
+from fastapi.responses import JSONResponse
+from sqlalchemy import Column, String, Integer, JSON, DateTime, UniqueConstraint, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
@@ -211,7 +212,7 @@ Endpoint usage:
 async def create_payment(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     current_user: User = Depends(get_current_user),
 ):
     if not idempotency_key:

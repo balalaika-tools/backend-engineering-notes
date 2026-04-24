@@ -17,6 +17,7 @@ User sends one request, you need to:
 
 ```python
 import asyncio
+import sys
 from typing import AsyncIterator
 
 
@@ -73,21 +74,31 @@ async def stream_first_responder(
 async def get_first_chunk(provider: str, payload: dict):
     """
     Start stream, return first chunk + continuation.
+
+    Note: the continuation generator must keep the response context manager
+    open for the lifetime of the stream. We enter the context manager here
+    and close it explicitly when the generator is exhausted or cancelled.
     """
-    stream = client.stream(...)
-    
-    async with stream as response:
+    cm = client.stream(...)
+    response = await cm.__aenter__()
+
+    try:
         first_chunk = None
-        
-        async def continuation():
-            async for chunk in response.aiter_lines():
-                yield chunk
-        
         async for chunk in response.aiter_lines():
             first_chunk = chunk
             break
-        
-        return provider, first_chunk, continuation()
+    except BaseException:
+        await cm.__aexit__(*sys.exc_info())
+        raise
+
+    async def continuation():
+        try:
+            async for chunk in response.aiter_lines():
+                yield chunk
+        finally:
+            await cm.__aexit__(None, None, None)
+
+    return provider, first_chunk, continuation()
 ```
 
 ---
@@ -395,24 +406,31 @@ async def adaptive_throttle(
     initial_rate: float = 10.0,
 ) -> AsyncIterator[str]:
     """
-    Adaptively throttle based on backpressure signals.
+    Adaptively throttle based on observed downstream consumption time.
+
+    Measures how long each ``yield`` takes to return (i.e., how long the
+    consumer took to accept the chunk). Slow consumers indicate backpressure;
+    we reduce the rate. Fast consumers allow speed-up.
     """
-    
+
     rate = initial_rate
-    consecutive_slow = 0
-    
+
     async for chunk in stream:
-        try:
-            # Try to yield with short timeout
-            yield chunk
-            consecutive_slow = 0
-            rate = min(rate * 1.1, 100.0)  # Speed up
-        
-        except asyncio.QueueFull:
-            consecutive_slow += 1
-            rate = max(rate * 0.5, 1.0)  # Slow down
-            await asyncio.sleep(1.0 / rate)
-            yield chunk
+        before = asyncio.get_running_loop().time()
+        yield chunk
+        # Time the yield took to resume = rough proxy for consumer slowness.
+        consume_time = asyncio.get_running_loop().time() - before
+
+        expected = 1.0 / rate
+        if consume_time > expected * 2:
+            # Consumer is slow - back off.
+            rate = max(rate * 0.5, 1.0)
+        else:
+            # Consumer is keeping up - gently speed up.
+            rate = min(rate * 1.1, 100.0)
+
+        # Pace the next emission.
+        await asyncio.sleep(max(0.0, expected - consume_time))
 ```
 
 ---
@@ -653,29 +671,32 @@ async def production_stream(
     first_chunk_time = None
     
     try:
-        # 2. Queue timeout for resource acquisition
+        # 2. Acquire rate + concurrency slots under a short queue timeout.
+        #    NOTE: do NOT wrap the streaming loop itself with a wall-clock
+        #    timeout; rely on httpx per-chunk `read` timeout instead.
         async with asyncio.timeout(5):
-            async with llm_rate:
-                async with llm_sem:
-                    
-                    # 3. Circuit breaker
-                    async for chunk in breaker.execute(
-                        _raw_stream, payload
-                    ):
-                        # 4. Client disconnect check
-                        if await request.is_disconnected():
-                            break
-                        
-                        # 5. Metrics
-                        if first_chunk_time is None:
-                            first_chunk_time = time.time()
-                        chunk_count += 1
-                        
-                        # 6. Format as SSE
-                        yield f"data: {chunk}\n\n"
-                    
-                    yield "data: [DONE]\n\n"
-    
+            await llm_rate.acquire()
+            await llm_sem.acquire()
+
+        try:
+            # 3. Circuit breaker + stream body (no wall-clock timeout).
+            async for chunk in breaker.execute(_raw_stream, payload):
+                # 4. Client disconnect check
+                if await request.is_disconnected():
+                    break
+
+                # 5. Metrics
+                if first_chunk_time is None:
+                    first_chunk_time = time.time()
+                chunk_count += 1
+
+                # 6. Format as SSE
+                yield f"data: {chunk}\n\n"
+
+            yield "data: [DONE]\n\n"
+        finally:
+            llm_sem.release()
+
     except asyncio.TimeoutError:
         yield f"data: {json.dumps({'error': 'timeout'})}\n\n"
     

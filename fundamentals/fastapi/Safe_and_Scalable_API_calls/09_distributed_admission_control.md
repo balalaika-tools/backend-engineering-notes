@@ -234,7 +234,7 @@ return {1, "ok", 0}
 
 ```python
 import time
-import redis.asyncio as aioredis
+import redis.asyncio as redis
 from dataclasses import dataclass
 from typing import Optional
 
@@ -253,7 +253,7 @@ class AdmissionController:
     One Redis round-trip per request. Atomic across all checked dimensions.
     """
 
-    def __init__(self, r: aioredis.Redis, provider: str = "openai"):
+    def __init__(self, r: redis.Redis, provider: str = "openai"):
         self.r = r
         self.provider = provider
         self._sha: Optional[str] = None
@@ -314,7 +314,7 @@ admission: AdmissionController = None  # initialized at startup
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global admission
-    r = aioredis.from_url("redis://redis:6379", decode_responses=False)
+    r = redis.from_url("redis://redis:6379", decode_responses=False)
     admission = AdmissionController(r, provider="openai")
     yield
     await r.aclose()

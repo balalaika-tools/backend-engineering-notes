@@ -4,7 +4,7 @@ This README explains **what Thread Pools and Process Pools are**, **how they beh
 
 ---
 
-## Core Concepts 
+## Core Concepts
 
 ### Process
 - An **OS-level program**
@@ -210,7 +210,7 @@ Rule:
 | C-extension heavy (NumPy, Torch)      | ThreadPoolExecutor            |
 | GUI / server responsiveness           | ThreadPoolExecutor            |
 | Massive concurrency (I/O)             | asyncio                       |
-| Shared memory, no GIL (future Python) | ThreadPoolExecutor            |
+| Shared memory, no GIL (`python3.14t`) | ThreadPoolExecutor            |
 
 ---
 
@@ -221,18 +221,41 @@ Rule:
 
 ---
 
-## Future Note (No-GIL Python)
+## Free-Threaded Python (No-GIL)
 
-Python 3.13 introduced an **experimental, opt-in free-threaded build** (PEP 703, available via the `python3.13t` binary or by building CPython with `--disable-gil`):
+The GIL is being made **optional**, not removed. There are now two CPython builds:
 
-* In the free-threaded build, threads *can* execute Python bytecode in parallel
-* It is **not** the default — the standard CPython 3.13 binary still ships with the GIL
-* Threads *could* eventually become a viable alternative to processes for CPU-bound Python, but this depends on ecosystem adoption and there is no committed timeline — multiprocessing remains the safe default today
-* Ecosystem is still adapting: most third-party C extensions need to be **rebuilt** against the free-threaded ABI (look for `cpXYt` wheel tags), and some rely on GIL-implied invariants that do not hold without it
+* **Default build** (`python3.14`) — still has the GIL, semantics unchanged
+* **Free-threaded build** (`python3.14t`) — threads execute Python bytecode in **parallel** across cores
 
-For now:
+### Status timeline
 
-* **Multiprocessing is the correct choice for CPU-bound Python** on the default (GIL) build
+| Release | Status | PEP |
+|---------|--------|-----|
+| Python 3.13 (Oct 2024) | Experimental — opt-in via `python3.13t` | [PEP 703](https://peps.python.org/pep-0703/) |
+| Python 3.14 (Oct 2025) | **Officially supported** — still opt-in | [PEP 779](https://peps.python.org/pep-0779/) |
+| Future | Default build (no firm timeline) | — |
+
+### What changed in 3.14
+
+* PEP 779 moved free-threaded Python from "experimental" to **Phase II: officially supported**
+* The free-threaded HOWTO reports average single-thread overhead of about **1% on macOS aarch64 to 8% on x86-64 Linux** on `pyperformance`
+* Built-in containers use internal locks in the current implementation, but Python still does not guarantee specific behavior for unsynchronized concurrent mutation
+* Some extension modules can force the GIL back on at import time if they are not marked as free-threading-safe
+* FastAPI 0.136.0+ has public free-threaded-Python support, but real throughput gains remain workload- and dependency-dependent
+
+### What to know before using it
+
+* You need the `python3.14t` binary (or build CPython with `--disable-gil`) — the default `python3.14` is unchanged
+* Check whether the GIL is actually disabled with `sys._is_gil_enabled()` or `sysconfig.get_config_var("Py_GIL_DISABLED")`
+* C extensions must explicitly support the free-threaded build; otherwise they may re-enable the GIL
+* Shared mutable state is now genuinely concurrent — use `threading.Lock` or another synchronization primitive instead of relying on incidental atomicity
+
+### Practical rule today
+
+* **I/O-bound, most apps** → standard `python3.14`, `asyncio` or threads as usual
+* **CPU-bound in pure Python** → multiprocessing remains the safe default; free-threaded `python3.14t` is a serious option if every dependency supports it
+* **FastAPI with mixed workloads** → the free-threaded build becomes compelling when CPU-bound endpoints are the bottleneck and you'd rather not run a separate worker tier
 
 ---
 
@@ -245,3 +268,10 @@ If your goal is:
 * **"Handle lots of I/O cleanly"** → asyncio
 
 ---
+
+## References
+
+* [PEP 703 — Making the GIL Optional](https://peps.python.org/pep-0703/)
+* [PEP 779 — Supported status for free-threaded Python](https://peps.python.org/pep-0779/)
+* [Python free-threading HOWTO](https://docs.python.org/3/howto/free-threading-python.html)
+* [`concurrent.futures`](https://docs.python.org/3/library/concurrent.futures.html)

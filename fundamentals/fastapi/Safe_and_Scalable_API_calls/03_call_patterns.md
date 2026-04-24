@@ -12,6 +12,7 @@ This is the **recommended baseline** for LLM or external API calls:
 import asyncio
 import httpx
 import random
+from typing import Optional
 from aiolimiter import AsyncLimiter
 
 
@@ -26,9 +27,9 @@ class FinalFailure(Exception):
 
 
 # === GLOBAL PRIMITIVES (must be created once at app startup) ===
-llm_sem = asyncio.Semaphore(50)           # Local concurrency control
-llm_rate = AsyncLimiter(60, 60)           # Local rate limiting (60/min)
-client: httpx.AsyncClient = None          # Initialized in startup event
+llm_sem = asyncio.Semaphore(50)                   # Local concurrency control
+llm_rate = AsyncLimiter(60, 60)                   # Local rate limiting (60/min)
+client: Optional[httpx.AsyncClient] = None        # Initialized in startup event
 
 
 def backoff(attempt: int) -> float:
@@ -258,11 +259,15 @@ def decorrelated_backoff(attempt: int, prev_backoff: float) -> float:
 ### Conservative (429 Responses)
 
 ```python
-def respect_retry_after(response: httpx.Response) -> float:
-    """Use vendor's Retry-After header if present."""
+def respect_retry_after(response: httpx.Response, attempt: int) -> float:
+    """Use vendor's Retry-After header if present, else fall back to exponential backoff."""
     retry_after = response.headers.get("Retry-After")
     if retry_after:
-        return float(retry_after)
+        # Retry-After may be seconds (integer) or an HTTP-date; handle seconds here.
+        try:
+            return float(retry_after)
+        except ValueError:
+            pass
     return backoff(attempt)
 ```
 
@@ -452,21 +457,20 @@ client = anthropic.AsyncAnthropic(
 
 ### Solution 2: Account for SDK Retries
 
-If you can't disable them:
+If you can't disable them, do not add an outer retry — let the SDK's internal retries be your only retry layer:
 
 ```python
-# SDK will retry 3 times internally
-# So your outer retry should be 1
-for attempt in range(1):  # Only ONE outer retry
-    try:
-        result = await sdk_call()
-        break
-    except Exception:
-        if attempt == 0:
-            await asyncio.sleep(backoff(attempt))
+# SDK already retries internally (e.g., up to 3 attempts).
+# Do NOT wrap it in another retry loop — that multiplies attempts
+# (3 × 3 = 9) and blows through rate limits.
+try:
+    result = await sdk_call()
+except Exception:
+    # Let it propagate. The SDK has already retried.
+    raise
 ```
 
-**Rule**: One retry layer. Yours. Control it explicitly.
+**Rule**: One retry layer. Yours *or* the SDK's — never both. Control it explicitly.
 
 ---
 
