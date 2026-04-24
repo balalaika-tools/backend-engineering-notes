@@ -20,6 +20,7 @@
 | [structlog_guide.md](structlog_guide.md) | Structured Logging | structlog, processors, FastAPI integration, contextvars |
 | [configuration.md](configuration.md) | Configuration | pydantic-settings, `.env`, secrets, validation |
 | [contextvars.md](contextvars.md) | ContextVars | Request-scoped state, async-safe thread-locals, propagation patterns |
+| [signals.md](signals.md) | Unix Signals | SIGTERM/SIGKILL/SIGINT, graceful shutdown, lifespan, async signal handling |
 
 ---
 
@@ -33,6 +34,7 @@
 6. **Structured Logging** — upgrade to structlog for production
 7. **Configuration** — manage settings and secrets
 8. **ContextVars** — request-scoped state that flows through async code
+9. **Signals** — graceful shutdown, SIGTERM handling, uvicorn lifespan pattern
 
 ---
 

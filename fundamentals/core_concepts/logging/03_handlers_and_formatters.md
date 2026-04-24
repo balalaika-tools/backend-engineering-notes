@@ -83,6 +83,76 @@ handler.setLevel(logging.INFO)
 handler.setFormatter(formatter)
 ```
 
+---
+
+## stdout, stderr, and Buffering
+
+### What are stdin, stdout, and stderr?
+
+When the OS starts any process it automatically opens three communication channels for it, before your code runs a single line. These are called the **standard streams**:
+
+- **stdin** (standard input) — the channel the process reads from. By default it's the keyboard; when you pipe data (`cat file.txt | python app.py`), stdin becomes that pipe.
+- **stdout** (standard output) — the channel the process writes its normal output to. `print()` goes here. By default it goes to the terminal.
+- **stderr** (standard error) — a second output channel reserved for diagnostics, warnings, and errors. It goes to the same terminal by default, but it's a *separate stream* so it can be redirected independently.
+
+The term **stdio** (short for "standard I/O") refers to all three together. It comes from the C standard library (`<stdio.h>`) and the concept carried into every Unix-derived language and OS.
+
+In Python these are exposed as `sys.stdin`, `sys.stdout`, and `sys.stderr` — ordinary file objects you can read from, write to, or replace entirely.
+
+### The three standard streams
+
+Every process inherits three open file descriptors from the OS:
+
+| Stream | fd | `sys` name | Default destination |
+|--------|----|------------|---------------------|
+| stdin  | 0  | `sys.stdin`  | keyboard / pipe in  |
+| stdout | 1  | `sys.stdout` | terminal / pipe out |
+| stderr | 2  | `sys.stderr` | terminal (unbuffered)|
+
+They are just file objects — you can redirect, replace, or wrap them like any other file.
+
+### Why logging defaults to stderr
+
+`StreamHandler()` with no argument writes to `sys.stderr`, not `sys.stdout`. The reason: logs are diagnostic output, not program output. Keeping them on separate streams lets you pipe or redirect one without polluting the other:
+
+```bash
+python app.py > output.txt        # stdout captured, logs still visible
+python app.py 2>/dev/null         # logs suppressed, stdout visible
+python app.py > out.txt 2> err.txt  # both captured separately
+```
+
+If you send logs to stdout you lose that separation — structured output (JSON API responses piped into `jq`, for example) and log lines get mixed together.
+
+### Python buffering modes
+
+Python buffers writes to speed up I/O. Three modes exist:
+
+| Mode | Behaviour | Default for |
+|------|-----------|-------------|
+| Unbuffered | Every write hits the OS immediately | `sys.stderr`, binary streams |
+| Line-buffered | Flush on each `\n` | `sys.stdout` when attached to a TTY |
+| Block-buffered | Accumulate up to ~8 KB then flush | `sys.stdout` when **not** attached to a TTY (e.g. inside a container or pipe) |
+
+The problem in containers: when stdout is not a TTY (it's a pipe to Docker's log driver), Python switches to block-buffered mode. A crash mid-block means those log lines never reach the log driver — they were still sitting in the buffer when the process died.
+
+### `PYTHONUNBUFFERED=1`
+
+Set this environment variable to force unbuffered stdout/stderr:
+
+```bash
+# Dockerfile
+ENV PYTHONUNBUFFERED=1
+
+# or at runtime
+PYTHONUNBUFFERED=1 python app.py
+```
+
+This is equivalent to running `python -u`. It ensures every log line (or `print`) is flushed immediately, so container logs are complete even on crash.
+
+> Always set `PYTHONUNBUFFERED=1` in any Docker/Kubernetes workload. The cost is negligible; the benefit is that you never lose the last lines before a crash.
+
+---
+
 ### `FileHandler` — write to a file
 
 ```python
