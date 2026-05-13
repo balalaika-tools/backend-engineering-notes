@@ -94,22 +94,31 @@ Key decorator fields:
 
 ## Part 1: The HTTP Request
 
-Every HTTP request consists of these parts:
+Every HTTP request is made up of four distinct parts:
+
+| Part          | Where it lives                    | Purpose                                      |
+|---------------|-----------------------------------|----------------------------------------------|
+| Method + Path | First line of the request         | What action to take and on which resource    |
+| Query string  | After `?` in the URL              | Modifiers — filters, pagination, sort order  |
+| Headers       | Lines before the blank line       | Metadata — auth tokens, content type, caching |
+| Body          | After the blank line              | Payload — structured data sent to the server |
+
+### Annotated Example
 
 ```
-METHOD  PATH?QUERY
-HEADERS
-
-BODY
+POST /users/42/orders?notify=true HTTP/1.1     ← method + path + query string
+Host: api.example.com                          ← header: target host
+Authorization: Bearer eyJhbGci...             ← header: auth token
+Content-Type: application/json                 ← header: body format
+Accept: application/json                       ← header: expected response format
+                                               ← blank line separates headers from body
+{                                              ↓ body: structured JSON payload
+  "item_id": 7,
+  "quantity": 3
+}
 ```
 
-### Example Request
-
-```
-GET /users/42/products?page=2 HTTP/1.1
-Authorization: Bearer abc123
-Accept: application/json
-```
+Each part maps to a different FastAPI parameter source, covered in the sections below.
 
 ---
 
