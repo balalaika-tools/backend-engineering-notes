@@ -11,7 +11,7 @@ This guide explains **how HTTP requests work** and **how FastAPI maps request da
 | Method   | Purpose                                  | Request body?                      | Idempotent? |
 |----------|------------------------------------------|------------------------------------|-------------|
 | `GET`    | Retrieve a resource representation        | Avoid; no generally defined meaning | Yes         |
-| `POST`   | Submit data to a resource; often create   | Yes                                | Not by default |
+| `POST`   | Submit data for processing; may create, search, calculate, or trigger an action | Yes | Not by default |
 | `PUT`    | Replace or create the target resource     | Yes                                | Yes         |
 | `PATCH`  | Apply a partial modification              | Yes                                | Not guaranteed |
 | `DELETE` | Remove the target resource association    | Avoid; no generally defined meaning | Yes         |
@@ -19,6 +19,16 @@ This guide explains **how HTTP requests work** and **how FastAPI maps request da
 Idempotent means that repeating the same request has the same intended server-side effect as sending it once. The response can still differ; for example, the first `DELETE` might return `204`, while a repeated one might return `404`.
 
 `PATCH` is commonly treated as non-idempotent because a patch document can express instructions like "append this item." It can be designed to be idempotent, especially when it sets fields to explicit values and uses conditional requests such as `If-Match`.
+
+> **POST mental model:** `POST` does not mean "create only." It means "send this payload to the server and let the target resource process it according to its own semantics." A `POST` can absolutely return data. Common legitimate uses beyond creation:
+>
+> ```
+> POST /search          → complex query too large or sensitive for a URL
+> POST /reports/run     → trigger a calculation and return results
+> POST /recommendations → send context, get back personalized data
+> ```
+>
+> Use `POST` for reads when the query body is complex, URL length would be excessive, or you want to avoid exposing parameters in logs and browser history.
 
 ### URL Naming Conventions
 
