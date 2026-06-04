@@ -708,7 +708,19 @@ def upgrade() -> None:
     op.execute("BEGIN")
 ```
 
-> **PostgreSQL 12+:** `ALTER TABLE ... ADD CONSTRAINT ... NOT NULL NOT VALID` + `VALIDATE CONSTRAINT` is the safe way to add NOT NULL to large tables. The `NOT VALID` part skips the full table scan, and `VALIDATE CONSTRAINT` acquires only a `SHARE UPDATE EXCLUSIVE` lock.
+> **PostgreSQL 12+:** the safe way to add `NOT NULL` to a large table is a three-step constraint dance, not a direct `SET NOT NULL`:
+>
+> ```python
+> # 1. Add a CHECK constraint as NOT VALID — instant, no scan, only new/changed rows are checked
+> op.execute("ALTER TABLE users ADD CONSTRAINT users_tier_not_null CHECK (tier IS NOT NULL) NOT VALID")
+> # 2. Validate it — scans existing rows but takes only a SHARE UPDATE EXCLUSIVE lock (reads/writes continue)
+> op.execute("ALTER TABLE users VALIDATE CONSTRAINT users_tier_not_null")
+> # 3. SET NOT NULL — PG 12+ uses the validated CHECK to skip its own full scan; then drop the now-redundant CHECK
+> op.alter_column("users", "tier", nullable=False)
+> op.execute("ALTER TABLE users DROP CONSTRAINT users_tier_not_null")
+> ```
+>
+> Pre-12, `SET NOT NULL` always rescans the whole table under an `ACCESS EXCLUSIVE` lock — there is no non-blocking path.
 
 ---
 

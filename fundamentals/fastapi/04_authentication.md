@@ -53,11 +53,14 @@ If your database is breached and passwords are stored in plaintext, every user a
 
 **Hashing is one-way.** You can verify a password against a hash, but you cannot reverse the hash to get the password.
 
-### The Pattern: bcrypt via passlib
+### The Pattern: bcrypt
+
+> **Library choice (2025+):** `passlib` is effectively unmaintained — its last release was 2020, and it breaks with `bcrypt>=4.1` (and outright fails on `bcrypt>=5`) due to a removed `__about__` version-detection attribute. For new code, prefer **`pwdlib`** (purpose-built FastAPI-era replacement, supports argon2 and bcrypt) or call **`bcrypt`** / **`argon2-cffi`** directly. The `passlib` example below is shown because you will still encounter it in existing codebases; if you use it, pin `bcrypt<4.1`. A direct-`bcrypt` version follows.
 
 ```python
 from passlib.context import CryptContext
 
+# NOTE: requires bcrypt<4.1 — passlib is unmaintained, see note above.
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
@@ -71,6 +74,24 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 ```
 
+**Recommended for new code — direct `bcrypt`** (no `passlib` dependency):
+
+```python
+import bcrypt
+
+
+def hash_password(plain_password: str) -> str:
+    """Hash a password for storage. bcrypt truncates input at 72 bytes."""
+    return bcrypt.hashpw(plain_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against a stored hash (constant-time comparison)."""
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+```
+
+> **bcrypt's 72-byte limit:** bcrypt silently truncates passwords longer than 72 bytes. If you need to support longer passphrases, use `argon2-cffi` / `pwdlib` with argon2 instead, which has no such limit.
+
 ### How It Works
 
 ```python
@@ -83,8 +104,8 @@ verify_password("wrong_password", hashed)        # False
 
 Key properties:
 - **Salt is automatic** -- bcrypt generates a random salt per hash
-- **Timing-safe comparison** -- passlib prevents timing attacks
-- **Cost factor is configurable** -- `deprecated="auto"` handles algorithm upgrades
+- **Timing-safe comparison** -- both `passlib.verify` and `bcrypt.checkpw` compare in constant time
+- **Cost factor is configurable** -- `bcrypt.gensalt(rounds=12)` (or passlib's `deprecated="auto"` for algorithm upgrades)
 
 ### Common Mistakes
 
@@ -134,11 +155,14 @@ header.payload.signature
 
 > **The payload is NOT encrypted.** Anyone can decode it. The signature only guarantees it hasn't been tampered with.
 
-### Creating Tokens with python-jose
+### Creating Tokens with PyJWT
+
+> **Library choice (2025+):** This guide uses **`PyJWT`** (`pip install pyjwt`). FastAPI's own docs switched from `python-jose` to PyJWT because `python-jose` is unmaintained and carries an algorithm-confusion vulnerability (CVE-2024-33663) via its unmaintained `ecdsa` dependency. If you must keep `python-jose`, the snippets below are nearly identical — import `from jose import jwt, JWTError` and catch `JWTError` instead of `PyJWTError`. PyJWT raises `jwt.ExpiredSignatureError` (a subclass of `jwt.PyJWTError`) on expiry.
 
 ```python
 from datetime import datetime, timedelta, timezone
-from jose import jwt, JWTError
+import jwt
+from jwt import PyJWTError
 
 SECRET_KEY = "your-secret-key-from-environment"  # NEVER hardcode in production
 ALGORITHM = "HS256"
@@ -153,7 +177,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
 
 
 def decode_access_token(token: str) -> dict:
-    """Decode and validate a JWT. Raises JWTError on failure."""
+    """Decode and validate a JWT. Raises PyJWTError on failure."""
     return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 ```
 
@@ -168,10 +192,10 @@ access_token = create_access_token(
     expires_delta=timedelta(minutes=30),
 )
 
-# python-jose automatically rejects expired tokens
+# PyJWT automatically rejects expired tokens (raises ExpiredSignatureError)
 try:
     payload = decode_access_token(token)
-except JWTError:
+except PyJWTError:
     raise HTTPException(status_code=401, detail="Token invalid or expired")
 ```
 
@@ -194,7 +218,7 @@ def create_refresh_token(data: dict) -> str:
 def refresh_access_token(refresh_token: str):
     try:
         payload = decode_access_token(refresh_token)
-    except JWTError:
+    except PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     if payload.get("type") != "refresh":
@@ -306,7 +330,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
         email: str = payload.get("sub")
         if email is None:
             raise credentials_exception
-    except JWTError:
+    except PyJWTError:
         raise credentials_exception
 
     user = get_user_by_email(email)  # your DB lookup
@@ -713,7 +737,7 @@ def get_optional_user(
         if email is None:
             return None
         return get_user_by_email(email)
-    except JWTError:
+    except PyJWTError:
         return None
 
 
@@ -951,7 +975,7 @@ Auth endpoints (login, register, password reset) should **always** be rate-limit
 | Concern | Action |
 |---------|--------|
 | **Secrets** | Load from environment variables, never from code |
-| **Passwords** | Hash with bcrypt via passlib, never store plaintext |
+| **Passwords** | Hash with bcrypt (direct) or argon2 via `pwdlib`, never store plaintext; avoid unmaintained `passlib` |
 | **JWTs** | Set expiration, validate on every request, use token types |
 | **CORS** | Whitelist specific origins, never `*` in production |
 | **HTTPS** | Enforce via reverse proxy, add HSTS header |
@@ -965,7 +989,7 @@ Auth endpoints (login, register, password reset) should **always** be rate-limit
 
 ## 12. Complete Example: Putting It All Together
 
-> The user registration models below use a Create/Response split (`UserIn`/`UserOut` or similar). For the reasoning behind that split — why you separate Create / Update / Response schemas, how to share a base, `model_config` for ORM mode — see [03_pydantic.md §10 Create/Update/Response Pattern](./03_pydantic.md#10-useful-patterns). The example here shows only the auth-specific delta (password hashing, never returning the hash).
+> The user registration models below use a Create/Response split (`UserIn`/`UserOut` or similar). For the reasoning behind that split — why you separate Create / Update / Response schemas, how to share a base, `model_config` for ORM mode — see [03_pydantic.md §10 Common Patterns](./03_pydantic.md#10-common-patterns). The example here shows only the auth-specific delta (password hashing, never returning the hash).
 
 ```python
 import os
@@ -974,8 +998,9 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import jwt, JWTError
-from passlib.context import CryptContext
+import bcrypt
+import jwt
+from jwt import PyJWTError
 from pydantic import BaseModel
 
 # --- Configuration ---
@@ -986,7 +1011,6 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # --- Security utilities ---
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 
@@ -1006,11 +1030,11 @@ class Token(BaseModel):
 # --- Auth functions ---
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(data: dict) -> str:
@@ -1029,7 +1053,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
         email: str = payload.get("sub")
         if email is None:
             raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
+    except PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     user = get_user_by_email(email)  # your DB lookup
@@ -1092,7 +1116,7 @@ def admin_stats(admin: User = Depends(require_role("admin"))):
 
 1. **Auth is a dependency chain** -- each layer has one job
 2. **Tokens are not encrypted** -- they are signed; never put secrets in the payload
-3. **Passwords must be hashed** -- bcrypt via passlib, never anything else
+3. **Passwords must be hashed** -- bcrypt (direct) or argon2, never a fast hash; avoid the unmaintained `passlib`
 4. **CORS is not optional** -- misconfigured CORS either blocks your frontend or opens security holes
 5. **Secrets come from the environment** -- never from source code
 6. **Errors should not leak information** -- same message for wrong user and wrong password

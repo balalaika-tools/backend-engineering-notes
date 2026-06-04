@@ -47,7 +47,7 @@ The client gets `{"id": ...}` right away. The email send happens after, without 
 
 - **BackgroundTasks runs in the same worker.** A long task blocks that worker from handling new requests (if the task is CPU-heavy) or consumes its event-loop time (if it's slow async work).
 - **No error reporting to the client.** Log inside the task; failures do not propagate.
-- **Order matters for exception safety.** If the endpoint raises after `add_task`, the task still runs (FastAPI has already enqueued it). If you want a task to run only on success, `add_task` last.
+- **Tasks run only if the endpoint returns a response.** Background tasks are attached to the response object, so they execute *after* it is sent. If the endpoint raises after `add_task` (including `HTTPException`), no response is built and the task never runs. (See [fastapi#2604](https://github.com/fastapi/fastapi/issues/2604).) To guarantee a task fires even on an error path, attach it inside a custom exception handler instead — `JSONResponse(..., background=task)`.
 - **Use `async def` tasks for I/O, sync `def` for CPU.** Sync tasks run in the thread pool; async tasks run on the event loop.
 
 ---

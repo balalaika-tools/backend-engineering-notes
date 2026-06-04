@@ -67,6 +67,28 @@ from utils.logger import setup_logging
 setup_logging()  # call ONCE at startup
 ```
 
+### Option C — `dictConfig` (declarative)
+
+For larger apps, prefer `logging.config.dictConfig`: the whole setup is one data structure you can load from YAML/JSON and keep per-environment.
+
+```python
+import logging.config
+
+logging.config.dictConfig({
+    "version": 1,                       # required, always 1
+    "disable_existing_loggers": False,  # keep loggers created at import time
+    "formatters": {
+        "std": {"format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "std"},
+    },
+    "root": {"level": "INFO", "handlers": ["console"]},
+})
+```
+
+> Set `disable_existing_loggers: False`. The default is `True`, which **silences every logger already created** (e.g. module-level `getLogger(__name__)` from imports that ran before this call) — a classic "my logs vanished" bug.
+
 ```python
 # any module
 import logging

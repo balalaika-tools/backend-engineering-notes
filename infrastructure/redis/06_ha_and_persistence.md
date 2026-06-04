@@ -204,7 +204,78 @@ r.set("user:{42}:name", "alice")   # hash-tagged; guaranteed slot 42
 
 ---
 
-## 6. Managed Redis — What the Provider Handles
+## 6. Distributed Locks — and Why Failover Makes Them Hard
+
+A common reason teams reach for Redis is a **distributed lock**: "only one worker may run this job at a time." This sits squarely in HA territory because the failure modes above (async replication, failover) are exactly what break naive locks.
+
+### The single-instance lock
+
+For mutual exclusion that is an *optimization* (avoid duplicate work, not a correctness invariant), one command on one Redis instance is enough:
+
+```python
+import uuid
+from typing import Optional
+
+import redis.asyncio as aioredis
+
+async def acquire(r: aioredis.Redis, lock_key: str, ttl_ms: int = 30000) -> Optional[str]:
+    token = str(uuid.uuid4())
+    # SET key token NX PX ttl: set only if absent, with an expiry.
+    ok = await r.set(lock_key, token, nx=True, px=ttl_ms)
+    return token if ok else None
+```
+
+Release must be **conditional on owning the lock** — never a bare `DEL`, or you might delete a lock a *different* worker acquired after yours expired. Do it atomically with Lua so the check-and-delete can't race:
+
+```python
+RELEASE_LUA = """
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("DEL", KEYS[1])
+else
+  return 0
+end
+"""
+
+async def release(r: aioredis.Redis, lock_key: str, token: str) -> bool:
+    result = await r.eval(RELEASE_LUA, 1, lock_key, token)
+    return result == 1
+```
+
+The `NX` (set-if-absent), `PX` (expiry so a crashed holder doesn't deadlock the lock forever), and token-checked release are the three things every correct single-instance lock needs.
+
+### Where this breaks: failover
+
+The `SET NX PX` lock lives on **one** primary. Because replication is asynchronous (section 2), this sequence is possible:
+
+1. Worker A acquires the lock on the primary.
+2. The primary crashes **before** the lock replicates.
+3. Sentinel/Cluster promotes a replica that never saw the lock.
+4. Worker B acquires the "same" lock on the new primary.
+5. **Two workers now hold the lock simultaneously.**
+
+No amount of client-side cleverness fixes this — it's inherent to Redis being an AP (available, eventually-consistent) store, not a CP consensus system.
+
+### RedLock — and the contested debate
+
+`RedLock` is antirez's algorithm to address this: acquire the lock on a **majority of N independent primaries** (e.g. 3 of 5), so a single failover can't hand out a duplicate. `redis-py` ships it as `redis.lock.Lock` for the single-instance case; multi-instance RedLock needs a library like `redlock-py` / `pottery`.
+
+This is one of the more famous debates in distributed systems, and you should know both sides:
+
+- **Martin Kleppmann's critique** argues RedLock is unsafe for correctness-critical locking: it relies on bounded clocks and timing assumptions, and a GC pause or clock jump on the holder can let two processes believe they hold the lock. His conclusion: if correctness depends on the lock, use a system with a **fencing token** (a monotonically increasing number the protected resource checks), backed by a real consensus store (ZooKeeper, etcd, Consul).
+- **antirez's rebuttal** defends RedLock's assumptions as reasonable for many real deployments and disputes the failure model.
+
+**The practical takeaway:**
+
+| Lock is for… | Use |
+|--------------|-----|
+| Avoiding duplicate work / "best effort" mutual exclusion (the common case) | Single-instance `SET NX PX` + token release. Simple and good enough. |
+| Correctness — two holders would corrupt data or double-charge | Don't rely on a Redis lock alone. Use a consensus store (etcd/ZooKeeper) **or** a fencing token the resource enforces. |
+
+If you only remember one rule: **a Redis lock is a performance optimization, not a safety guarantee.** Design so that two simultaneous holders are merely wasteful, not catastrophic.
+
+---
+
+## 7. Managed Redis — What the Provider Handles
 
 For ElastiCache (AWS), Memorystore (GCP), Azure Cache for Redis, Redis Cloud:
 
@@ -217,7 +288,7 @@ Running Redis yourself is fine for a single-region, single-tenant setup where yo
 
 ---
 
-## 7. `maxmemory` and Eviction
+## 8. `maxmemory` and Eviction
 
 This is a setting every production Redis deployment must set explicitly.
 
@@ -238,7 +309,7 @@ maxmemory-policy allkeys-lru
 
 ---
 
-## 8. Checklist for Production
+## 9. Checklist for Production
 
 - [ ] `maxmemory` and `maxmemory-policy` set explicitly.
 - [ ] Persistence decided (both AOF + RDB for source-of-truth; neither for pure cache).
@@ -250,6 +321,7 @@ maxmemory-policy allkeys-lru
 - [ ] Clients retry on `LOADING`, `BUSY`, connection errors with backoff.
 - [ ] Off-node backup (RDB copied to object storage on a schedule).
 - [ ] Chaos test: kill the primary in staging and measure how long writes are unavailable.
+- [ ] If you use a Redis lock, confirm two simultaneous holders are merely wasteful, not catastrophic (section 6). Correctness-critical mutual exclusion belongs in a consensus store or behind a fencing token.
 
 ---
 

@@ -52,7 +52,7 @@ The simplest Redis type. A string value can be an actual string, an integer, a f
 |---------|-------------|---------|
 | `SET key value` | Set a value | `SET user:1:name "Alice"` |
 | `GET key` | Get a value | `GET user:1:name` --> `"Alice"` |
-| `SETNX key value` | Set only if key does NOT exist | `SETNX lock:job1 "worker-1"` |
+| `SET key value NX` | Set only if key does NOT exist | `SET lock:job1 "worker-1" NX` |
 | `SET key value EX seconds` | Set with TTL | `SET session:abc token EX 3600` |
 | `INCR key` | Atomic increment by 1 | `INCR page:views:homepage` |
 | `INCRBY key n` | Atomic increment by n | `INCRBY user:1:balance 50` |
@@ -82,19 +82,18 @@ r.incr("page:views:homepage")  # 1
 r.incr("page:views:homepage")  # 2
 r.incrby("page:views:homepage", 10)  # 12
 
-# SETNX — set only if not exists (used for distributed locks)
-acquired = r.setnx("lock:send-email:42", "worker-1")
+# Set-if-not-exists (used for distributed locks).
+# Prefer SET ... NX EX: it sets the value and TTL in ONE atomic command.
+acquired = r.set("lock:send-email:42", "worker-1", nx=True, ex=30)
 if acquired:
-    # we got the lock
-    r.expire("lock:send-email:42", 30)  # auto-release after 30s
+    # we got the lock atomically with a TTL — if the holder crashes,
+    # the lock still auto-expires after 30s
     # do the work...
     r.delete("lock:send-email:42")
 
-# Better: SET with NX and EX in one atomic command
-acquired = r.set("lock:send-email:42", "worker-1", nx=True, ex=30)
-if acquired:
-    # we got the lock atomically with a TTL
-    pass
+# Avoid the legacy SETNX command (deprecated since 2.6.12 in favor of SET ... NX).
+# r.setnx() cannot set a TTL atomically: a crash between SETNX and EXPIRE
+# leaves the lock stuck forever. Use SET ... NX EX instead.
 
 # Bulk operations (reduces round trips)
 r.mset({"key1": "val1", "key2": "val2", "key3": "val3"})
@@ -105,7 +104,7 @@ values = r.mget("key1", "key2", "key3")  # ["val1", "val2", "val3"]
 
 - **Caching simple values**: HTML fragments, serialized JSON, API responses.
 - **Counters**: Page views, rate limits, inventory counts. `INCR` is atomic so concurrent requests are safe.
-- **Sessions**: Store session tokens with TTL (`SETEX` or `SET ... EX`).
+- **Sessions**: Store session tokens with TTL (`SET ... EX`; the older `SETEX` works but is deprecated).
 - **Distributed locks**: `SET key value NX EX 30` — atomic set-if-not-exists with auto-release TTL. If the holder crashes, the lock auto-expires.
 - **Feature flags**: Simple on/off switches.
 
@@ -432,6 +431,7 @@ A powerful pattern: use timestamps as scores to implement a sliding window rate 
 
 ```python
 import time
+import uuid
 
 def is_rate_limited(r, user_id: str, limit: int = 10, window_seconds: int = 60) -> bool:
     """Allow `limit` requests per `window_seconds` per user."""
@@ -439,12 +439,15 @@ def is_rate_limited(r, user_id: str, limit: int = 10, window_seconds: int = 60) 
     now = time.time()
     window_start = now - window_seconds
 
-    # Start a pipeline for atomicity
+    # redis-py pipelines run as a MULTI/EXEC transaction by default,
+    # so these four commands execute atomically.
     pipe = r.pipeline()
-    pipe.zremrangebyscore(key, 0, window_start)  # remove old entries
-    pipe.zadd(key, {f"{now}": now})               # add current request
+    pipe.zremrangebyscore(key, 0, window_start)  # remove entries older than the window
+    # Use a unique member (score = timestamp). Two requests in the same
+    # microsecond would otherwise collide on the member and be undercounted.
+    pipe.zadd(key, {f"{now}:{uuid.uuid4()}": now})
     pipe.zcard(key)                                # count requests in window
-    pipe.expire(key, window_seconds)               # auto-cleanup
+    pipe.expire(key, window_seconds)               # auto-cleanup idle keys
     results = pipe.execute()
 
     request_count = results[2]
@@ -670,7 +673,7 @@ r.persist("session:abc")
 Redis uses two mechanisms:
 
 1. **Lazy expiration**: When a key is accessed, Redis checks if it is expired and deletes it.
-2. **Active expiration**: Redis periodically samples random keys with TTLs and deletes expired ones (20 times per second, checks 20 random keys each time).
+2. **Active expiration**: Redis periodically samples random keys with TTLs and deletes expired ones (10 times per second by default — the `hz` setting — checking 20 random keys per cycle, and repeating the cycle if more than 25% of the sampled keys were expired).
 
 This means expired keys may linger briefly in memory until they are accessed or sampled. This is by design — it keeps performance predictable.
 
@@ -764,7 +767,7 @@ Conventions:
 ## Quick Reference: All Commands by Type
 
 ```
-Strings:  SET  GET  SETNX  INCR  DECR  MSET  MGET  APPEND  STRLEN
+Strings:  SET (NX/XX/EX/PX/GET)  GET  INCR  DECR  MSET  MGET  APPEND  STRLEN
 Hashes:   HSET  HGET  HGETALL  HDEL  HEXISTS  HINCRBY  HLEN  HKEYS  HVALS
 Lists:    LPUSH  RPUSH  LPOP  RPOP  BLPOP  BRPOP  LRANGE  LLEN  LINDEX  LTRIM
 Sets:     SADD  SREM  SMEMBERS  SISMEMBER  SCARD  SINTER  SUNION  SDIFF  SRANDMEMBER

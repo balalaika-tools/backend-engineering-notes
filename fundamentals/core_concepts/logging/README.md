@@ -10,8 +10,8 @@
 |------|-------|-------------|
 | [01_basics.md](01_basics.md) | Basics | `basicConfig`, log levels, file logging, exceptions, rotation |
 | [02_hierarchy_and_propagation.md](02_hierarchy_and_propagation.md) | Hierarchy & Propagation | Logger name tree, parent-child, `propagate`, double-emit |
-| [03_handlers_and_formatters.md](03_handlers_and_formatters.md) | Handlers & Formatters | `LogRecord → Handler → Formatter` pipeline, built-in handlers, custom formatters |
-| [04_patterns.md](04_patterns.md) | Patterns | Universal logging, per-subfolder logging, mixing both, best practices |
+| [03_handlers_and_formatters.md](03_handlers_and_formatters.md) | Handlers & Formatters | `LogRecord → Handler → Formatter` pipeline, built-in handlers, custom formatters, async/`QueueHandler` |
+| [04_patterns.md](04_patterns.md) | Patterns | Universal logging, per-subfolder logging, mixing both, `dictConfig`, best practices |
 
 ---
 

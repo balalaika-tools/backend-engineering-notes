@@ -33,6 +33,7 @@ Write path:
 
 ```python
 import json
+from typing import Optional
 import redis.asyncio as aioredis
 
 async def get_user(r: aioredis.Redis, user_id: str) -> dict:
@@ -237,7 +238,7 @@ class ReadThroughCache:
         """Register a function that loads data from DB for a given prefix."""
         self._loaders[prefix] = loader
 
-    async def get(self, prefix: str, key: str, ttl: int | None = None) -> dict | None:
+    async def get(self, prefix: str, key: str, ttl: Optional[int] = None) -> Optional[dict]:
         cache_key = f"cache:{prefix}:{key}"
         ttl = ttl or self.default_ttl
 
@@ -260,7 +261,7 @@ class ReadThroughCache:
 # Setup
 cache = ReadThroughCache(redis_client)
 
-async def load_user(user_id: str) -> dict | None:
+async def load_user(user_id: str) -> Optional[dict]:
     return await db.fetch_user(int(user_id))
 
 cache.register_loader("user", load_user)
@@ -343,7 +344,7 @@ async def cache_with_adaptive_ttl(r, category: str, key: str, loader):
 
 | Strategy | How it works | Use when |
 |----------|-------------|----------|
-| **Fixed TTL** | `SETEX key 3600 value` — always 3600s | Default choice. Predictable. |
+| **Fixed TTL** | `SET key value EX 3600` — always 3600s | Default choice. Predictable. |
 | **Sliding TTL** | Reset TTL on every read (`EXPIRE key 3600`) | Frequently accessed data stays cached longer |
 | **Adaptive TTL** | TTL based on data volatility (static = long, dynamic = short) | Mixed data patterns |
 | **No TTL** | Explicit invalidation only | Data changes are always event-driven |
@@ -408,7 +409,7 @@ Time 0.003: Request C --> cache miss --> query DB
 Time 0.050: 200 concurrent DB queries for the same data
 ```
 
-### Solution 1: Mutex Lock (SETNX)
+### Solution 1: Mutex Lock (`SET ... NX EX`)
 
 Only one request fetches from DB. Others wait and retry.
 
@@ -609,7 +610,7 @@ async def invalidation_listener(r: aioredis.Redis):
 Instead of invalidating, change the cache key by including a version number. Old keys naturally expire via TTL.
 
 ```python
-async def get_user_versioned(r, user_id: str) -> dict | None:
+async def get_user_versioned(r, user_id: str) -> Optional[dict]:
     version = await r.get(f"version:user:{user_id}") or "v1"
     cache_key = f"user:{user_id}:{version}"
 
@@ -678,7 +679,7 @@ await invalidate_by_tag(r, "category:electronics")  # deletes product:1 and prod
 What happens when you query for data that does not exist? Without protection, every request for a non-existent user hits the database.
 
 ```python
-async def get_user_with_negative_cache(r, user_id: str) -> dict | None:
+async def get_user_with_negative_cache(r, user_id: str) -> Optional[dict]:
     cache_key = f"user:{user_id}"
 
     cached = await r.get(cache_key)

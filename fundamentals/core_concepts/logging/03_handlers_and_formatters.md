@@ -193,6 +193,38 @@ logging.getLogger("mylib").addHandler(logging.NullHandler())
 
 ---
 
+## Async Gotcha: Logging Is Blocking
+
+Every handler call is **synchronous and blocking**. `FileHandler` does a blocking disk write; a network/HTTP handler does a blocking socket write. Inside an `async def` (FastAPI route, asyncio task), a slow handler stalls the event loop and blocks *every* concurrent request — `logger.info(...)` is not awaitable and offers no yield point.
+
+Fix: hand records off to a background thread with `QueueHandler` + `QueueListener`. The logger only enqueues (near-instant); a dedicated listener thread runs the real handlers.
+
+```python
+import logging
+import queue
+from logging.handlers import QueueHandler, QueueListener
+
+log_queue: queue.Queue = queue.Queue(-1)   # unbounded
+
+# The real handlers run in the listener thread, off the event loop
+file_handler = logging.FileHandler("app.log")
+file_handler.setFormatter(
+    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+)
+
+# Loggers only enqueue — non-blocking
+root = logging.getLogger()
+root.setLevel(logging.INFO)
+root.addHandler(QueueHandler(log_queue))
+
+listener = QueueListener(log_queue, file_handler, respect_handler_level=True)
+listener.start()   # start at boot; call listener.stop() on shutdown to flush
+```
+
+This keeps the event loop responsive. `dictConfig` can wire this up declaratively via a `queue_handler` / `QueueListener` config (Python 3.12+ supports it natively in `dictConfig`).
+
+---
+
 ## Handler-Level Filtering
 
 Both loggers and handlers have their own level. A record must pass **both**:

@@ -1149,7 +1149,7 @@ class UserResponse(BaseModel):
 
 @app.get("/users/{user_id}", response_model=UserResponse)
 def get_user(user_id: int, db: Session = Depends(get_db)):
-    return db.query(UserORM).get(user_id)
+    return db.get(UserORM, user_id)  # SQLAlchemy 2.0 style
     # Error: Pydantic can't convert ORM object
 
 # ✅ WORKS — from_attributes enables ORM → Pydantic conversion

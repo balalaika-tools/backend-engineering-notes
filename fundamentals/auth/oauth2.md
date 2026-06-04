@@ -42,7 +42,7 @@ Your App → Auth Server: exchange code for tokens
 Auth Server → Your App: access_token + id_token + refresh_token
 ```
 
-PKCE (Proof Key for Code Exchange) is now required for public clients (SPAs, mobile). It prevents auth code interception attacks.
+PKCE (Proof Key for Code Exchange) prevents auth code interception attacks. It has long been required for public clients (SPAs, mobile), and OAuth 2.1 makes it **mandatory for every Authorization Code flow — including confidential server-side clients**. Send `code_challenge` on the authorize request and `code_verifier` on the token exchange for all clients, not just public ones.
 
 ```python
 import secrets, hashlib, base64
@@ -147,9 +147,11 @@ User logs in on another device and enters the code
 Auth Server → Device (on next poll): access_token
 ```
 
-### 5. Resource Owner Password (Deprecated)
+### 5. Resource Owner Password (Deprecated / removed in OAuth 2.1)
 
-Sends username + password directly to the auth server. **Do not use** for new projects — it defeats the purpose of OAuth (in authorization code flow, the client never sees the password). Still appears in some legacy systems and automated tests.
+Sends username + password directly to the auth server. **Do not use** for new projects — it defeats the purpose of OAuth (in authorization code flow, the client never sees the password). It is **removed entirely in OAuth 2.1**, not merely discouraged. Still appears in some legacy systems and automated tests.
+
+> **Implicit grant** (`response_type=token`, tokens returned in the URL fragment) is the other removed flow. You may still see it in older OIDC discovery documents and tutorials — never use it. SPAs that historically used Implicit should use **Authorization Code + PKCE** instead.
 
 Note: Cognito's `USER_PASSWORD_AUTH` / `ADMIN_USER_PASSWORD_AUTH` are **not** the OAuth 2.0 ROPC grant. They are Cognito-native auth flows exposed via the `InitiateAuth` / `AdminInitiateAuth` APIs — Cognito's `/oauth2/token` endpoint does not support `grant_type=password`.
 

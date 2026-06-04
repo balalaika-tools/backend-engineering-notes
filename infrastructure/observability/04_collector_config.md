@@ -161,6 +161,8 @@ processors:
 
 `resource` operates on `Resource` attributes (service-level). `attributes` operates on span/metric-level attributes. They are different scopes.
 
+> **Attribute names depend on the app's semconv setting.** The `http.url` key above is the *old* HTTP semconv name. If your services opt into the stable HTTP conventions (`OTEL_SEMCONV_STABILITY_OPT_IN=http`, see [02](02_python_sdk.md)), that attribute is instead `url.full` (with `url.path` / `url.query`), and `http.method` / `http.status_code` become `http.request.method` / `http.response.status_code`. Match your processor rules to whatever the apps actually emit, or they will silently no-op.
+
 ### filter (drop entire spans or metrics)
 
 ```yaml

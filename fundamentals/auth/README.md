@@ -5,7 +5,7 @@
 [![JWT](https://img.shields.io/badge/JWT-RFC7519-000000.svg?logo=jsonwebtokens&logoColor=white)](https://jwt.io)
 [![OAuth2](https://img.shields.io/badge/OAuth2-RFC6749-EB5424.svg)](https://oauth.net/2/)
 [![AWS Cognito](https://img.shields.io/badge/AWS_Cognito-latest-FF9900.svg?logo=amazonaws&logoColor=white)](https://aws.amazon.com/cognito/)
-[![python-jose](https://img.shields.io/badge/python--jose-3.x-4B8BBE.svg)](https://github.com/mpdavis/python-jose)
+[![PyJWT](https://img.shields.io/badge/PyJWT-2.x-000000.svg)](https://pyjwt.readthedocs.io)
 
 ---
 

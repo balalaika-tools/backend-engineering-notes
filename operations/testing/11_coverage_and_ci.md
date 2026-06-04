@@ -150,7 +150,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v5
         with:
@@ -164,9 +164,10 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
         run: pytest -n auto --cov=app --cov-report=xml --cov-fail-under=80
 
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v5
         with:
           files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}  # required for private repos (and existing orgs)
 ```
 
 Key choices:
@@ -195,9 +196,9 @@ repos:
         pass_filenames: false
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.0
+    rev: v0.15.0          # pin a real version; `pre-commit autoupdate` bumps it
     hooks:
-      - id: ruff
+      - id: ruff-check     # formerly `ruff`; `ruff-check` is the current hook id
       - id: ruff-format
 ```
 

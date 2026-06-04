@@ -237,19 +237,38 @@ Silent failure = corrupted state + lost debugging signal.
 
 ## 10. Exceptions Are Not Control Flow
 
-Exceptions are slow and semantically wrong for expected cases.
+Don't reach for `try/except` when a cheap, exact check expresses intent more clearly:
 
 ```python
-# ❌
+# ❌ exception used as a lookup
 try:
-    int(x)
-except ValueError:
-    ...
+    value = config["timeout"]
+except KeyError:
+    value = DEFAULT_TIMEOUT
 
-# ✅
-if x.isdigit():
-    int(x)
+# ✅ ask first
+value = config.get("timeout", DEFAULT_TIMEOUT)
 ```
+
+⚠️ The reverse is also a trap: don't pre-validate with a flawed check.
+Parsing an int is a case where `try/except` (EAFP) **is** the correct,
+idiomatic Python — `str.isdigit()` is wrong here. It returns `False` for
+`"-5"` (a valid int) and `True` for `"²"` (which `int()` rejects):
+
+```python
+# ❌ isdigit() rejects negatives and accepts unicode digits int() can't parse
+if x.isdigit():
+    n = int(x)
+
+# ✅ let int() be the source of truth
+try:
+    n = int(x)
+except ValueError:
+    n = None
+```
+
+The rule isn't "never use exceptions" — it's "don't fake a check you don't
+have, and don't fake exceptions for a check you do."
 
 ---
 

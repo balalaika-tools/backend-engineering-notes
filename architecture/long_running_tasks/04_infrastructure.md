@@ -178,7 +178,7 @@ for msg in response.get("Messages", []):
     sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=msg["ReceiptHandle"])
 ```
 
-### FIFO Queue (Exactly-Once, Ordered)
+### FIFO Queue (Exactly-Once *Processing*, Ordered)
 
 ```python
 sqs.send_message(
@@ -190,7 +190,7 @@ sqs.send_message(
 ```
 
 FIFO queues guarantee:
-- **Exactly-once delivery** within the 5-minute deduplication interval (processing still must be idempotent to survive consumer crashes after receive but before delete)
+- **Exactly-once processing** (AWS's term): `MessageDeduplicationId` drops duplicate *sends* within a 5-minute window. This is enqueue-side dedup, not exactly-once *delivery* — a consumer can still receive the same message more than once (crash after receive but before delete → visibility timeout expires → redelivery), so your handler must still be idempotent
 - **Ordered delivery** within a message group
 - **One in-flight message per group** — natural concurrency limiter
 

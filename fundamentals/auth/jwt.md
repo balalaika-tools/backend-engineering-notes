@@ -295,6 +295,10 @@ def validate_token(
 
 ### Full Validation with python-jose
 
+> **Prefer PyJWT.** `python-jose` is effectively unmaintained (no release since 2021) and has shipped with vulnerable transitive dependencies; FastAPI dropped it from its docs in favor of PyJWT. Use the PyJWT example above for new code. This example is kept only because a lot of existing Cognito/FastAPI code still uses `jose`. If you need JWE/encrypted tokens (which PyJWT does not do), prefer the actively maintained [`joserfc`](https://jose.authlib.org/) or `authlib` over `python-jose`.
+
+Note also that the example below verifies the signature manually and then reads claims with `get_unverified_claims`. That is correct *only* because the signature is checked first on the same token bytes — keep that ordering. PyJWT's `jwt.decode` does signature + claim validation in one call and is harder to get wrong.
+
 ```python
 from jose import jwk, jwt as jose_jwt
 from jose.utils import base64url_decode
@@ -379,6 +383,7 @@ def get_current_user(
             algorithms=["RS256"],
             issuer=ISSUER,
             audience=AUDIENCE,
+            leeway=30,  # absorb clock skew on exp/nbf/iat — see "Clock-Skew Leeway"
         )
         return claims
     except jwt.ExpiredSignatureError:

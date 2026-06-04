@@ -176,9 +176,9 @@ from functools import wraps
 def timer(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
-        start = time.time()
+        start = time.perf_counter()  # monotonic clock, not wall-clock
         result = func(*args, **kwargs)
-        print(f"{func.__name__} took {time.time() - start:.3f}s")
+        print(f"{func.__name__} took {time.perf_counter() - start:.3f}s")
         return result
     return wrapper
 ```

@@ -80,8 +80,7 @@ During development you might use SQLite, then switch to PostgreSQL for productio
 |-----------|--------|------------|
 | Boolean | `0`/`1` integers | Native `BOOL` |
 | Auto-increment | `INTEGER PRIMARY KEY` | `SERIAL` or `GENERATED ALWAYS AS IDENTITY` |
-| String comparisons | Case-insensitive by default | Case-sensitive |
-| `LIKE` operator | Case-insensitive | Case-sensitive (use `ILIKE`) |
+| `LIKE` operator | Case-insensitive for ASCII | Case-sensitive (use `ILIKE`) |
 | `JSON` type | Stored as text | Native `JSONB` with indexing |
 
 **Recommendation**: Use PostgreSQL everywhere, including local dev (via Docker). Eliminates the "works on my machine" class of bugs.
@@ -415,12 +414,22 @@ BEGIN ISOLATION LEVEL REPEATABLE READ;
 COMMIT;
 ```
 
-In Python, with SQLAlchemy:
+In Python, with SQLAlchemy, set the isolation level via `execution_options`
+**before** the transaction starts — issuing a raw `SET TRANSACTION` after
+`BEGIN` is too late and the driver may ignore or reject it:
 
 ```python
+# Per-transaction: bind the level to the connection before opening the txn
+conn = await session.connection(
+    execution_options={"isolation_level": "REPEATABLE READ"}
+)
 async with session.begin():
-    await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
-    # ... queries
+    # ... queries run under REPEATABLE READ
+    ...
+
+# Or set it once on a dedicated engine (cleanest when a whole workload
+# needs the same level):
+engine = create_async_engine(DATABASE_URL, isolation_level="SERIALIZABLE")
 ```
 
 ### Savepoints — Nested Rollbacks

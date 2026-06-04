@@ -142,6 +142,7 @@ async def call_api(payload: dict):
 
 1. Review Parts 1-5
 2. Read [Advanced Patterns](06_advanced_patterns.md) — circuit breakers, etc.
+3. Read [Idempotency Keys](11_idempotency.md) — make the aggressive retries from Part 3 safe for non-GET endpoints (double-charge protection)
 
 ### For Distributed / Multi-Pod Systems
 

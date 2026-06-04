@@ -88,6 +88,7 @@ SQLAlchemy 2.0 (released 2023) introduced a cleaner, type-annotated style. Alway
 ```python
 from datetime import datetime
 from decimal import Decimal
+from typing import Optional
 from sqlalchemy import String, Text, ForeignKey, Numeric, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -108,7 +109,7 @@ class User(Base):
 
     # Relationships
     posts: Mapped[list["Post"]] = relationship(back_populates="author", lazy="raise")
-    profile: Mapped["Profile | None"] = relationship(back_populates="user", lazy="raise")
+    profile: Mapped[Optional["Profile"]] = relationship(back_populates="user", lazy="raise")
 
     def __repr__(self) -> str:
         return f"<User id={self.id} email={self.email}>"
@@ -135,8 +136,8 @@ class Profile(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
-    bio: Mapped[str | None] = mapped_column(Text)
-    avatar_url: Mapped[str | None] = mapped_column(String(500))
+    bio: Mapped[Optional[str]] = mapped_column(Text)
+    avatar_url: Mapped[Optional[str]] = mapped_column(String(500))
 
     user: Mapped["User"] = relationship(back_populates="profile", lazy="raise")
 
@@ -169,8 +170,8 @@ class Tag(Base):
 |---------|------------|---------|
 | `Mapped[int]` | INTEGER NOT NULL | No |
 | `Mapped[str]` | TEXT NOT NULL | No |
-| `Mapped[int \| None]` | INTEGER NULL | Yes |
-| `Mapped[str \| None]` | TEXT NULL | Yes |
+| `Mapped[Optional[int]]` | INTEGER NULL | Yes |
+| `Mapped[Optional[str]]` | TEXT NULL | Yes |
 | `Mapped[bool]` | BOOLEAN NOT NULL | No |
 | `Mapped[datetime]` | TIMESTAMP NOT NULL | No |
 
@@ -239,15 +240,16 @@ price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
 ### Table-Level Constraints and Indexes
 
 ```python
-from sqlalchemy import UniqueConstraint, Index
+from sqlalchemy import UniqueConstraint, Index, text
 
 class Membership(Base):
     __tablename__ = "memberships"
     __table_args__ = (
         # Composite unique constraint
         UniqueConstraint("user_id", "team_id", name="uq_membership_user_team"),
-        # Partial index
-        Index("ix_active_memberships", "user_id", postgresql_where="is_active = TRUE"),
+        # Partial index (wrap the predicate in text() — a bare string is
+        # deprecated in SQLAlchemy 2.0 and triggers a coercion warning)
+        Index("ix_active_memberships", "user_id", postgresql_where=text("is_active = TRUE")),
         # Multi-column index
         Index("ix_posts_author_created", "author_id", "created_at"),
     )
@@ -281,8 +283,8 @@ One user has one profile:
 
 ```python
 class User(Base):
-    profile: Mapped["Profile | None"] = relationship(
-        back_populates="user", lazy="raise", uselist=False
+    profile: Mapped[Optional["Profile"]] = relationship(
+        back_populates="user", lazy="raise"
     )
 
 class Profile(Base):
@@ -394,6 +396,7 @@ finally:
 ### Sync CRUD
 
 ```python
+from typing import Optional
 from sqlalchemy import select
 
 # Create
@@ -405,11 +408,11 @@ def create_user(session: Session, email: str, name: str) -> User:
     return user
 
 # Read by primary key (checks identity map first)
-def get_user(session: Session, user_id: int) -> User | None:
+def get_user(session: Session, user_id: int) -> Optional[User]:
     return session.get(User, user_id)
 
 # Read with filter
-def get_user_by_email(session: Session, email: str) -> User | None:
+def get_user_by_email(session: Session, email: str) -> Optional[User]:
     stmt = select(User).where(User.email == email)
     return session.execute(stmt).scalar_one_or_none()
 
@@ -443,7 +446,7 @@ def delete_user(session: Session, user_id: int) -> bool:
 from sqlalchemy.orm import selectinload, joinedload
 
 # selectinload (2 queries, recommended for collections)
-def get_user_with_posts(session: Session, user_id: int) -> User | None:
+def get_user_with_posts(session: Session, user_id: int) -> Optional[User]:
     stmt = (
         select(User)
         .options(selectinload(User.posts))
@@ -452,7 +455,7 @@ def get_user_with_posts(session: Session, user_id: int) -> User | None:
     return session.execute(stmt).scalar_one_or_none()
 
 # joinedload (1 query with JOIN, for many-to-one / one-to-one)
-def get_post_with_author(session: Session, post_id: int) -> Post | None:
+def get_post_with_author(session: Session, post_id: int) -> Optional[Post]:
     stmt = (
         select(Post)
         .options(joinedload(Post.author))

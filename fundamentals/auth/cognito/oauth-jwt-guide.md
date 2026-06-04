@@ -381,7 +381,7 @@ def get_valid_access_token(
     return resp["AuthenticationResult"]["AccessToken"]
 ```
 
-> **Cognito does not rotate refresh tokens.** The same refresh token keeps working until it expires (30 days by default) or is explicitly revoked. Other IdPs rotate refresh tokens on every use — the security tradeoff there is discussed in [oauth2.md](../oauth2.md).
+> **By default, Cognito does not rotate refresh tokens** — the same refresh token keeps working until it expires (30 days by default) or is explicitly revoked. Since April 2025, refresh token rotation is an opt-in feature: enable it on the app client (`RefreshTokenRotation={'Feature': 'ENABLED'}`, Essentials/Plus tiers), and each refresh call returns a *new* refresh token while invalidating the old one (with a short grace period, up to 60s, for client retries). Rotation requires refreshing via `GetTokensFromRefreshToken` / the `/oauth2/token` endpoint rather than `REFRESH_TOKEN_AUTH`. Other IdPs rotate by default — the security tradeoff is discussed in [oauth2.md](../oauth2.md).
 
 ---
 

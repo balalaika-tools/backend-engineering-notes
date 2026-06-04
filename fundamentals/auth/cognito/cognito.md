@@ -233,15 +233,20 @@ For JWT theory and OAuth concepts, see the parent folder:
 
 ## Pricing & Free Tier (Plan This Early)
 
-Cognito pricing scales per **Monthly Active User (MAU)**, not per request.
+Cognito pricing scales per **Monthly Active User (MAU)**, not per request. A user is "active" if any auth operation happens on them in the month (login, token refresh, sign-up, etc.).
 
-- **Free tier** (always on, not time-limited): **50,000 MAU** for user-pool authentication. A user is "active" if any auth operation happens on them in the month (login, token refresh, sign-up, etc.).
-- Above the free tier, pricing steps down with volume — roughly **$0.0055 per MAU** for the first tier, cheaper at scale. Current rates at <https://aws.amazon.com/cognito/pricing/>.
-- **Advanced security features** (compromised-credential checks, adaptive authentication) are a separate, per-MAU surcharge — don't enable without budgeting.
-- **SAML / OIDC federation** users are priced differently, at a higher tier.
-- **Machine-to-machine tokens** (client_credentials) are priced per request, not per MAU, since there's no "user" to be monthly-active.
+As of the **late-2024 pricing restructure**, user pools come in three feature tiers, each priced differently. Pick the tier that matches the features you need — advanced security and managed-login branding require Essentials or Plus:
 
-For planning: a 100k-MAU app is in the paid tier for about `50,000 × $0.0055 ≈ $275/month`. Not a huge number, but worth sizing before the invoice appears.
+- **Lite** — basic auth. **50,000 MAU free**, then roughly **$0.0055/MAU** for the first paid band, cheaper at scale. This is the old "50k free" model.
+- **Essentials** — adds managed login branding, advanced threat protection options, etc. **10,000 MAU free**, then ~**$0.015/MAU**.
+- **Plus** — adds full advanced security (compromised-credential checks, adaptive auth). **Charges from the first MAU**, highest per-MAU rate.
+
+Always confirm current rates and tier features at <https://aws.amazon.com/cognito/pricing/> — these numbers move.
+
+- **SAML / OIDC federation** users are priced separately: only **50 MAU free**, then ~$0.015/MAU above that.
+- **Machine-to-machine tokens** (client_credentials) are priced per token request, not per MAU, since there's no "user" to be monthly-active.
+
+For planning: a 100k-MAU app on the **Lite** tier is in the paid band for about `50,000 × $0.0055 ≈ $275/month`. The same app on Essentials/Plus costs substantially more — size the tier *and* the volume before the invoice appears.
 
 ---
 

@@ -2,7 +2,7 @@
 
 > Everything you need to use Redis effectively in Python backends — data structures, messaging patterns, caching strategies, and Python client integration.
 
-[![Redis](https://img.shields.io/badge/Redis-7.x-DC382D.svg?logo=redis&logoColor=white)](https://redis.io)
+[![Redis](https://img.shields.io/badge/Redis-7.x%20%7C%208.x-DC382D.svg?logo=redis&logoColor=white)](https://redis.io)
 [![redis-py](https://img.shields.io/badge/redis--py-5.x-DC382D.svg)](https://github.com/redis/redis-py)
 [![asyncio](https://img.shields.io/badge/redis.asyncio-included-DC382D.svg)](https://redis-py.readthedocs.io/en/stable/asyncio.html)
 

@@ -479,6 +479,7 @@ Lambda triggers let you hook into Cognito's auth lifecycle to customize behavior
 
 ```python
 import boto3
+from datetime import datetime, timezone
 
 def handler(event, context):
     """Fires after a user confirms their account."""
@@ -501,7 +502,7 @@ def handler(event, context):
         'userId': event['request']['userAttributes']['sub'],
         'email': email,
         'tier': 'free',
-        'createdAt': datetime.utcnow().isoformat(),
+        'createdAt': datetime.now(timezone.utc).isoformat(),
     })
 
     # Must return the event unchanged (Cognito requires this)
@@ -584,7 +585,7 @@ new_id_token     = response['AuthenticationResult']['IdToken']
 
 ## User Pool Domain (for Hosted UI)
 
-If you want Cognito to serve the login page for you (useful for prototyping or OAuth flows), you need to add a domain to the pool:
+If you want Cognito to serve the login page for you (useful for prototyping or OAuth flows), you need to add a domain to the pool. (As of November 2024 the hosted UI was rebranded **Managed Login**, with a no-code branding editor; the classic hosted UI still works, but new pools default to Managed Login, which requires the Essentials tier for full branding.)
 
 ```python
 # Custom AWS subdomain

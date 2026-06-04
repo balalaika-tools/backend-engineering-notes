@@ -33,9 +33,14 @@ client: Optional[httpx.AsyncClient] = None        # Initialized in startup event
 
 
 def backoff(attempt: int) -> float:
-    """Exponential backoff with jitter"""
-    base = min(2 ** attempt, 32)
-    return base + random.uniform(0, 1)
+    """Exponential backoff with FULL jitter (AWS-style).
+
+    Sleep is drawn uniformly from [0, min(cap, base * 2**attempt)],
+    so retries spread across the whole window instead of clustering
+    at a fixed offset. This is what actually defeats the thundering herd.
+    """
+    cap = 32
+    return random.uniform(0, min(cap, 2 ** attempt))
 
 
 async def call_llm(payload: dict):
@@ -140,6 +145,8 @@ async def call_llm(payload: dict):
 
 > If the system is already overloaded, retries make it worse.
 
+> ⚠️ **Retries require idempotency.** A `httpx.TimeoutException` does not mean the vendor *didn't* process the request — it may have completed server-side after your read timeout fired. Retrying a non-idempotent POST (a charge, an order, a token-consuming LLM call) can execute it twice. Pair every retryable call with an idempotency key. See [Part 11: Idempotency](11_idempotency.md).
+
 ---
 
 ## 4. Semaphore + Retry: Non-Negotiable Rule
@@ -231,20 +238,20 @@ import random
 
 def backoff(attempt: int) -> float:
     """
-    Exponential backoff with jitter.
-    
-    attempt 0: 1-2 sec
-    attempt 1: 2-3 sec
-    attempt 2: 4-5 sec
+    Exponential backoff with FULL jitter.
+
+    Sleep is uniform over [0, min(cap, 2**attempt)]:
+    attempt 0: 0-1 sec
+    attempt 1: 0-2 sec
+    attempt 2: 0-4 sec
     ...
-    capped at 32-33 sec
+    capped at 0-32 sec
     """
-    base = min(2 ** attempt, 32)
-    jitter = random.uniform(0, 1)
-    return base + jitter
+    cap = 32
+    return random.uniform(0, min(cap, 2 ** attempt))
 ```
 
-**Why jitter?** Prevents thundering herd when multiple requests retry simultaneously.
+**Why FULL jitter (not "base + small jitter")?** A deterministic exponential base with only ±1s of added jitter still leaves every retrying client clustered in roughly the same 1-second window — a synchronized herd. Full jitter draws the delay uniformly across the *entire* `[0, backoff]` window, turning a synchronized spike into a steady trickle. See [AWS: Exponential Backoff And Jitter](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/).
 
 ### Decorrelated Jitter (Better for High Contention)
 

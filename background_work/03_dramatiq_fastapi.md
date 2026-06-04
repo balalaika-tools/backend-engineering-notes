@@ -144,23 +144,25 @@ async def start_processing(doc_id: str, req: ProcessRequest):
 
 
 # --- Check task status ---
+#
+# WARNING: Dramatiq's result backend keys results off the *original* Message
+# object (specifically its auto-generated `message_id`), not off a job id you
+# pass in. You CANNOT reconstruct a working lookup from a bare id string: a
+# freshly built Message gets a brand-new random `message_id`, so its result key
+# never matches what the worker stored. To read a result you must hold the
+# Message object that `.send()` returned — which does not survive across API
+# instances or restarts. So `get_result` is only usable in narrow cases (e.g.
+# the same worker that you also block on). For durable, cross-instance status
+# lookup, track job state in YOUR OWN database — see "Alternative Result
+# Tracking Pattern" below, which is the pattern you should actually ship.
+#
+# The snippet below shows the result API given a Message you still hold:
 
-@app.get("/jobs/{job_id}")
-async def get_job_status(job_id: str):
-    """Poll for the result of a previously enqueued task."""
-    message = process_document.message_with_options(
-        args=(),
-        options={"redis_message_id": job_id},
-    )
-    try:
-        result = message.get_result(block=False)
-        return {"status": "completed", "result": result}
-    except dramatiq.results.ResultMissing:
-        return {"status": "pending"}
-    except dramatiq.results.ResultTimeout:
-        return {"status": "processing"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# message = process_document.send(doc_id)   # keep this reference
+# try:
+#     result = message.get_result(block=False)   # ResultMissing if not ready
+# except dramatiq.results.ResultMissing:
+#     result = None
 
 
 # --- Fire-and-forget tasks ---
@@ -492,7 +494,7 @@ CMD ["uvicorn", "myapp.main:app", "--host", "0.0.0.0", "--port", "8000"]
 Dramatiq handles `SIGTERM` gracefully by default:
 1. Stops consuming new messages
 2. Waits for in-progress tasks to finish
-3. If tasks don't finish in time, sends `Interrupted` exception
+3. If tasks don't finish in time, sends an `Interrupt` exception (`dramatiq.middleware.Interrupt`)
 
 Docker sends `SIGTERM` then waits `stop_grace_period` (default: 10s) before `SIGKILL`.
 
@@ -509,7 +511,7 @@ Dramatiq workers don't expose HTTP by default. Options:
 
 ```python
 # Option A: use the Prometheus middleware (exposes /metrics HTTP endpoint)
-from dramatiq.middleware import Prometheus
+from dramatiq.middleware.prometheus import Prometheus
 broker.add_middleware(Prometheus())
 
 # Option B: custom heartbeat file that Kubernetes can check

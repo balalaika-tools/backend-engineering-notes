@@ -19,6 +19,8 @@ The Python Redis ecosystem is simpler than you might expect:
 pip install redis
 ```
 
+> **Version note**: the examples here target `redis-py` 5.x, but the API shown (`redis.asyncio`, `from_url`, `aclose`, pipelines, Sentinel/Cluster) is unchanged through `redis-py` 8.x. The one behavioral change to know about: **`redis-py` 8.0 made RESP3 the default protocol** (5.x defaulted to RESP2). RESP3 changes how a few replies are typed (notably some commands return maps/`dict` instead of flat lists). If you upgrade and a parser breaks, pin the old behavior with `protocol=2` on the client, or update your reply handling.
+
 ---
 
 ## redis-py Sync Client

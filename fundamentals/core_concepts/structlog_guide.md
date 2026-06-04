@@ -46,7 +46,7 @@ Now every log aggregator (Datadog, ELK, CloudWatch, Loki) can:
 | Adding context | Pass `extra={}` dict, easy to forget | `.bind()` attaches context that persists |
 | Processor pipeline | Handlers + Formatters (class-based) | Chain of simple functions |
 | Immutable loggers | No -- global mutable state | Yes -- `.bind()` returns a new logger |
-| Performance | Good | Good (C-accelerated timestamper available) |
+| Performance | Good | Good (pluggable fast JSON via `orjson`/`msgspec`) |
 | stdlib compatibility | Native | Full integration -- can wrap or replace |
 
 > **Key insight**: structlog is not a replacement for stdlib logging. It is a **layer on top** that gives you structured output and context propagation while still using stdlib's infrastructure underneath.

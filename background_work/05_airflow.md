@@ -4,6 +4,8 @@ Airflow is a platform for authoring, scheduling, and monitoring **workflows** (D
 
 > **Airflow is an orchestrator, not a worker.** It tells *other things* what to run and when. The actual computation happens in external systems (databases, Spark, Kubernetes pods, your API, Dramatiq workers, etc.).
 
+> **Version note:** These notes target **Airflow 2.x** (2.10), which most production deployments still run. **Airflow 3.0** went GA in April 2025 (current stable 3.2.x) and is a large release. The TaskFlow API, `@dag`/`@task`, dynamic mapping, `schedule=`, and `catchup=False` shown here all carry over. The main 3.x changes to know: the REST API moved to **`/api/v2`** (`/api/v1` removed; `logical_date` is now a required, nullable payload field on the trigger endpoint), **`SubDagOperator` was removed** (use TaskGroups), the webserver is now an `api-server` on a React UI, and the scheduler is service-oriented. Avoid `SubDagOperator` and `schedule_interval=` (renamed to `schedule=`) in any new DAGs regardless of version.
+
 ---
 
 ## 1. When Airflow vs When Dramatiq
@@ -427,7 +429,7 @@ from fastapi import FastAPI
 
 app = FastAPI()
 
-AIRFLOW_URL = "http://airflow-webserver:8080/api/v1"
+AIRFLOW_URL = "http://airflow-webserver:8080/api/v1"  # Airflow 3.x: /api/v2
 AIRFLOW_AUTH = ("admin", "admin")  # use a service account in production
 
 

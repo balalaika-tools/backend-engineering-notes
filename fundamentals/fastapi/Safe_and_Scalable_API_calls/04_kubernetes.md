@@ -125,6 +125,8 @@ llm_sem = asyncio.Semaphore(50)
 
 This is a **capacity guard**, not a rate limit.
 
+> ⚠️ **The semaphore is per-pod, just like the rate limiter.** `asyncio.Semaphore(50)` caps in-flight calls *within one process*. With 10 pods, cluster-wide concurrency is `10 × 50 = 500`, not 50. You cannot bound *global* concurrency with an in-process semaphore — that needs distributed admission control ([Part 9](09_distributed_admission_control.md)). The local semaphore protects the pod; it says nothing about the cluster.
+
 ### Layer 2: Local Queue Timeout (Admission Control)
 
 ```python
@@ -225,7 +227,13 @@ class VendorRateLimitExceeded(Exception):
 class GlobalVendorRateLimiter:
     """
     Redis-backed global rate limiter for vendor API calls.
-    Uses sliding window algorithm.
+    Uses a sliding-window algorithm.
+
+    NOTE: This is a teaching example. The check (zcard) and the write
+    (zadd) are separate round-trips, so concurrent callers can both pass
+    the check before either writes — the limiter can overshoot under load.
+    Part 9 replaces this with a single atomic Lua script that has no such
+    race. Do not copy this verbatim into production.
     """
     
     def __init__(

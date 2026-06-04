@@ -128,7 +128,7 @@ uvicorn app.main:app \
 |------|---------|---------|-----------------|
 | `--host 0.0.0.0` | Bind to all interfaces (required in Docker) | `127.0.0.1` | `0.0.0.0` |
 | `--port 8000` | Listen port | `8000` | `8000` |
-| `--workers N` | Number of OS processes | `1` | `2 * CPU + 1` or just use Gunicorn |
+| `--workers N` | Number of OS processes | `1` | ~`1 per CPU core` (async workers — see note below) |
 | `--loop uvloop` | Faster event loop implementation | `auto` | `uvloop` |
 | `--http httptools` | Faster HTTP parser | `auto` | `httptools` |
 | `--log-level warning` | Suppress per-request access logs | `info` | `warning` or `info` |
@@ -151,6 +151,8 @@ Parent process (supervisor)
 ```
 
 Each worker is a fully independent copy of your application. They share nothing in memory.
+
+> **Worker count for async workers is not `2 * CPU + 1`.** That formula is Gunicorn's heuristic for *synchronous* workers, where one process handles one request at a time. An async Uvicorn worker handles many concurrent requests on a single event loop, so you don't need extra processes to hide I/O latency. Start at roughly **one worker per CPU core** and tune from load tests. (For purely I/O-bound workloads a single worker per core is often plenty; more workers mainly help saturate multiple cores for CPU-bound work.)
 
 ### Understanding `--limit-concurrency`
 
@@ -201,9 +203,11 @@ Uvicorn can run multiple workers on its own. Gunicorn adds:
 
 ### Gunicorn + UvicornWorker Configuration
 
+> **Use the `uvicorn-worker` package, not `uvicorn.workers`.** Since Uvicorn 0.30 the bundled `uvicorn.workers.UvicornWorker` is deprecated and emits a warning; the worker now lives in the separate [`uvicorn-worker`](https://pypi.org/project/uvicorn-worker/) package as `uvicorn_worker.UvicornWorker`. Add `uvicorn-worker` to your dependencies.
+
 ```bash
 gunicorn app.main:app \
-    --worker-class uvicorn.workers.UvicornWorker \
+    --worker-class uvicorn_worker.UvicornWorker \
     --workers 4 \
     --bind 0.0.0.0:8000 \
     --timeout 120 \
@@ -219,7 +223,7 @@ gunicorn app.main:app \
 
 | Flag | Purpose |
 |------|---------|
-| `--worker-class uvicorn.workers.UvicornWorker` | Use Uvicorn as the ASGI worker |
+| `--worker-class uvicorn_worker.UvicornWorker` | Use Uvicorn as the ASGI worker (from the `uvicorn-worker` package) |
 | `--workers 4` | Number of worker processes |
 | `--timeout 120` | Kill worker if it doesn't respond in 120s |
 | `--graceful-timeout 30` | Time for graceful shutdown per worker |
@@ -245,7 +249,7 @@ USER appuser
 EXPOSE 8000
 
 CMD ["gunicorn", "app.main:app", \
-     "--worker-class", "uvicorn.workers.UvicornWorker", \
+     "--worker-class", "uvicorn_worker.UvicornWorker", \
      "--workers", "4", \
      "--bind", "0.0.0.0:8000", \
      "--timeout", "120", \
@@ -1125,7 +1129,7 @@ CMD ["uvicorn", "app.main:app", \
 
 > **Note on Gunicorn:** If you're running behind Gunicorn (recommended for non-Kubernetes deployments), replace the `CMD` with:
 > ```dockerfile
-> CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", \
+> CMD ["gunicorn", "-k", "uvicorn_worker.UvicornWorker", \
 >      "-w", "4", "-b", "0.0.0.0:8000", \
 >      "--access-logfile", "-", \
 >      "--max-requests", "10000", \

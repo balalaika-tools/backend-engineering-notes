@@ -73,6 +73,8 @@ async def check_fixed_window(
 
 If you want strict atomicity (e.g. for the multi-dimension admission script in part 9), use Lua.
 
+> **Note on the unconditional `EXPIRE`**: this snippet calls `EXPIRE` on every request rather than only on the first one (`count == 1`). That keeps the pipeline branch-free at the cost of one redundant `EXPIRE` per request. Because the key is window-pinned (a new key appears each window), the TTL doesn't drift meaningfully, so it's a fine trade for simplicity here. The "TTL Hygiene" section below explains when the first-INCR-only pattern is worth the extra round-trip.
+
 ### Trade-offs
 
 ✅ **Cheap**: one `INCR`, one `EXPIRE`, no sorted-set machinery.

@@ -43,7 +43,7 @@ client = httpx.AsyncClient(http2=True)
 |----------|----------------|
 | Many requests to same host | Fewer connections |
 | High latency networks | Reduced handshakes |
-| Server push support | Proactive data |
+| Repeated/large headers | HPACK header compression |
 
 ### When HTTP/2 Doesn't Help
 
@@ -372,15 +372,22 @@ def create_production_client() -> httpx.AsyncClient:
     )
 
 
-# Usage
+# Usage — create the client ONCE and reuse it across requests.
+# Creating a client per call throws away the connection pool and pays a
+# fresh DNS + TCP + TLS handshake every time. In FastAPI, build it in a
+# lifespan handler and close it on shutdown.
+
+client = create_production_client()  # long-lived, app-scoped
+
+
 async def fetch_data():
-    client = create_production_client()
-    try:
-        response = await client.get("https://api.example.com/data")
-        response.raise_for_status()
-        return response.json()
-    finally:
-        await client.aclose()
+    response = await client.get("https://api.example.com/data")
+    response.raise_for_status()
+    return response.json()
+
+
+async def shutdown():
+    await client.aclose()
 ```
 
 ---
@@ -393,14 +400,21 @@ HTTPX uses the system's default CA bundle (via `certifi`) and verifies certifica
 
 Internal services that use a private CA (self-signed, corporate root, Let's Encrypt staging) aren't in `certifi`'s default bundle.
 
-```python
-client = httpx.AsyncClient(verify="/path/to/ca-bundle.pem")
+As of httpx 0.28, passing a path string to `verify=` is deprecated (it raises a warning). Build an `ssl.SSLContext` and pass that instead:
 
-# Or point to a directory of PEM files (OpenSSL-style)
-client = httpx.AsyncClient(verify="/etc/ssl/custom-cas/")
+```python
+import ssl
+import httpx
+
+ctx = ssl.create_default_context()
+ctx.load_verify_locations(cafile="/path/to/ca-bundle.pem")
+# Or a directory of PEM files (OpenSSL-style):
+# ctx.load_verify_locations(capath="/etc/ssl/custom-cas/")
+
+client = httpx.AsyncClient(verify=ctx)
 ```
 
-Environment override without changing code: `SSL_CERT_FILE=/path/to/bundle.pem`.
+Environment override without changing code: `SSL_CERT_FILE=/path/to/bundle.pem` (read by OpenSSL/`certifi`).
 
 ### Disabling verification — only for debugging
 
@@ -408,27 +422,35 @@ Environment override without changing code: `SSL_CERT_FILE=/path/to/bundle.pem`.
 client = httpx.AsyncClient(verify=False)   # NEVER in production
 ```
 
-This disables certificate verification entirely — you're vulnerable to MITM. HTTPX logs a warning when you do this. If the problem is "my internal CA isn't trusted," fix it with the custom CA bundle above; don't reach for `verify=False`.
+This disables certificate verification entirely — you're vulnerable to MITM. If the problem is "my internal CA isn't trusted," fix it with the custom CA bundle above; don't reach for `verify=False`.
 
 ### Mutual TLS (client certificates)
 
-When the server authenticates the client via cert (common in internal / zero-trust setups):
+When the server authenticates the client via cert (common in internal / zero-trust setups). As of httpx 0.28 the `cert=` argument is deprecated; load the client cert into an `ssl.SSLContext` via `load_cert_chain` instead:
 
 ```python
-client = httpx.AsyncClient(
-    cert=("/path/to/client.crt", "/path/to/client.key"),
-)
+import ssl
+import httpx
 
-# Or a single PEM file containing both cert and key
-client = httpx.AsyncClient(cert="/path/to/client-combined.pem")
+ctx = ssl.create_default_context()
+ctx.load_cert_chain(certfile="/path/to/client.crt", keyfile="/path/to/client.key")
 
-# With a password-protected key
-client = httpx.AsyncClient(cert=("/path/to/client.crt", "/path/to/client.key", "keypassword"))
+# A single PEM file containing both cert and key:
+# ctx.load_cert_chain(certfile="/path/to/client-combined.pem")
+
+# Password-protected key:
+# ctx.load_cert_chain(
+#     certfile="/path/to/client.crt",
+#     keyfile="/path/to/client.key",
+#     password="keypassword",
+# )
+
+client = httpx.AsyncClient(verify=ctx)
 ```
 
 ### Pinning / custom SSL context
 
-For full control (cipher suites, TLS version floor, alternative trust stores), pass your own `ssl.SSLContext`:
+The `ssl.SSLContext` approach above is also how you get full control (cipher suites, TLS version floor, alternative trust stores). Passing an `SSLContext` via `verify=` is the supported path in httpx 0.28+:
 
 ```python
 import ssl

@@ -140,23 +140,24 @@ Worker catches an exception during processing
 
 ```python
 import threading
-import time
 import requests
 
-def heartbeat_loop(job_id: str, orchestrator_url: str, interval: int = 30):
+def heartbeat_loop(stop_event: threading.Event, job_id: str, orchestrator_url: str, interval: int = 30):
     """Background thread that pings the orchestrator."""
-    while not _stop_event.is_set():
+    while not stop_event.is_set():
         try:
             requests.post(f"{orchestrator_url}/jobs/{job_id}/heartbeat", timeout=5)
         except Exception:
             pass  # Best-effort — if orchestrator is down, keep working
-        _stop_event.wait(interval)
-
-_stop_event = threading.Event()
+        stop_event.wait(interval)
 
 def run_task(job_id: str, orchestrator_url: str):
-    # Start heartbeat in background
-    hb = threading.Thread(target=heartbeat_loop, args=(job_id, orchestrator_url, 30), daemon=True)
+    # Per-task stop event — never share one Event across tasks, or finishing
+    # one task would silently kill the heartbeats of others in the same process.
+    stop_event = threading.Event()
+    hb = threading.Thread(
+        target=heartbeat_loop, args=(stop_event, job_id, orchestrator_url, 30), daemon=True
+    )
     hb.start()
 
     try:
@@ -165,7 +166,7 @@ def run_task(job_id: str, orchestrator_url: str):
     except Exception as e:
         requests.post(f"{orchestrator_url}/jobs/{job_id}/fail", json={"error": str(e)})
     finally:
-        _stop_event.set()  # Stop heartbeat
+        stop_event.set()  # Stop heartbeat
 ```
 
 ---

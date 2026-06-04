@@ -243,7 +243,7 @@ source.onerror = (event) => {
 
 Key `EventSource` behaviors:
 
-- **Auto-reconnects** on connection loss (with exponential backoff)
+- **Auto-reconnects** on connection loss after a fixed delay (default ~3s; set it with the `retry:` field). The spec lets user agents add backoff, but it isn't guaranteed — for true exponential backoff use a library like `@microsoft/fetch-event-source`.
 - Sends `Last-Event-ID` header on reconnect (if you set `id:` fields)
 - Only supports **GET** requests (limitation — use `fetch()` for POST)
 - Cannot set custom headers (no `Authorization` — use query params or cookies)
@@ -369,8 +369,8 @@ Cache-Control: no-cache
 Connection: keep-alive
 Transfer-Encoding: chunked
 
-retry: 5000
 event: status
+retry: 5000
 data: connected
 
 id: 1
@@ -485,7 +485,8 @@ The difference: `await client.post()` reads the complete response body before re
 
 ```python
 from pathlib import Path
-from fastapi import FastAPI
+import aiofiles
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
 
 app = FastAPI()

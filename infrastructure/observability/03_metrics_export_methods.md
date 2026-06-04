@@ -343,7 +343,7 @@ REQUEST_DURATION = Histogram(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_telemetry()
+    init_telemetry(app)
     start_http_server(port=9464, addr="0.0.0.0")
     yield
 

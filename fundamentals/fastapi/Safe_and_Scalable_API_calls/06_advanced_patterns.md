@@ -129,6 +129,10 @@ class PodAwareCircuitBreaker:
             if opened_at:
                 elapsed = time.time() - float(opened_at)
                 if elapsed > self.timeout:
+                    # Enter half-open with a fresh success counter, otherwise
+                    # stale successes from a prior recovery cycle could close
+                    # the breaker before success_threshold fresh probes succeed.
+                    await self.redis.set(f"{self.key_prefix}:successes", 0)
                     await self._set_state("half_open")
                 else:
                     raise CircuitBreakerOpen()

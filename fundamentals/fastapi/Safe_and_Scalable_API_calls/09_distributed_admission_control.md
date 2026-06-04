@@ -75,7 +75,7 @@ Pick the keys you'll actually use *before* writing code. Use a consistent prefix
 | `user:{id}:rpd:{window}` | Requests per day | Fixed window |
 | `user:{id}:tpm:{window}` | **Tokens** per minute (LLM-specific) | Token bucket or sliding counter |
 | `user:{id}:tpd:{window}` | Tokens per day | Fixed window with refund-on-error |
-| `user:{id}:inflight` | Concurrent in-flight requests | Counter (no TTL, INCR/DECR pair) |
+| `user:{id}:inflight` | Concurrent in-flight requests | **Sorted set** of `{token → expiry_ts}` (crash-safe; see §5.4) |
 | `user:{id}:cost:{month}` | $ spent this month | Counter, accumulates floats |
 
 ### 3.2 Per-tier limits (monetization)
@@ -97,7 +97,7 @@ A tier-wide limit prevents one tier (usually free) from starving paid users when
 | `model:{model}:inflight` | Global concurrency cap for one model |
 | `model:{model}:rpm:{window}` | Global RPM for one model |
 
-GPT-4 costs ~20× GPT-3.5. You probably don't want one quota across both — split by model and let users burn through cheap ones freely.
+A frontier model can cost an order of magnitude more per token than a small/cheap one (exact ratios shift every release — check current pricing). You probably don't want one quota across both — split by model and let users burn through cheap ones freely.
 
 ### 3.4 Global / infrastructure limits
 
@@ -174,7 +174,7 @@ The whole point of doing this in Redis is **one round-trip per request** that ch
 --   2 = user_banned        (string flag)
 --   3 = global_rpm         (counter, windowed)
 --   4 = user_rpm           (counter, windowed)
---   5 = user_inflight      (counter, no TTL)
+--   5 = user_inflight      (SORTED SET: member=token, score=expiry_ts)
 --   6 = provider_rpm       (counter, windowed)
 --
 -- ARGV:
@@ -183,6 +183,11 @@ The whole point of doing this in Redis is **one round-trip per request** that ch
 --   3 = inflight_limit
 --   4 = provider_rpm_limit
 --   5 = window_seconds
+--   6 = now_ts              (caller's clock, seconds — pass it in; redis.call
+--                            ("TIME") is non-deterministic and disallowed in
+--                            scripts that also write)
+--   7 = inflight_token      (unique per request, e.g. a UUID)
+--   8 = inflight_lease_secs (max time a slot may be held before it's reaped)
 --
 -- Returns: { ok, reason, retry_after_seconds }
 --   ok           = 1 if allowed, 0 if denied
@@ -216,11 +221,20 @@ if p > tonumber(ARGV[4]) then
   return {0, "provider_rpm", redis.call("TTL", KEYS[6])}
 end
 
-local i = redis.call("INCR", KEYS[5])
-if i > tonumber(ARGV[3]) then
-  redis.call("DECR", KEYS[5])
+-- inflight as a leased sorted set (crash-safe):
+--   1. reap expired leases (workers that died holding a slot)
+--   2. count live members
+--   3. if room, add this token with an expiry score
+local now   = tonumber(ARGV[6])
+local lease = tonumber(ARGV[8])
+redis.call("ZREMRANGEBYSCORE", KEYS[5], "-inf", now)   -- evict dead leases
+local i = redis.call("ZCARD", KEYS[5])
+if i >= tonumber(ARGV[3]) then
   return {0, "user_inflight", 1}
 end
+redis.call("ZADD", KEYS[5], now + lease, ARGV[7])
+-- Safety net: if every member somehow leaves, the key still self-expires.
+redis.call("EXPIRE", KEYS[5], lease + window)
 
 return {1, "ok", 0}
 ```
@@ -228,12 +242,18 @@ return {1, "ok", 0}
 **Why this order matters:**
 - Flags first — cheapest checks, no `INCR` needed.
 - Counters in increasing scope — global before user before inflight — so a global outage rejects fast and doesn't pollute per-user counters with rejected requests.
-- `inflight` last because it's the only one that requires a rollback (`DECR` after over-limit `INCR`).
+- `inflight` last because it's the only stateful slot that must survive a crash.
+
+**Why a sorted set, not `INCR`/`DECR` (the bug most tutorials ship):**
+A plain `INCR` on entry and `DECR` in a `finally` looks fine until a pod is OOM-killed, the node reboots, or the process is `SIGKILL`ed mid-request. The `finally` never runs, the counter is never decremented, and that phantom slot is held **forever** — the user's effective concurrency limit silently ratchets down to zero. There is no TTL to save you because a bare counter has no per-request granularity to expire.
+
+The leased sorted set fixes this: each admitted request gets a unique `token` scored with an **expiry timestamp** (`now + lease`). Every admission first calls `ZREMRANGEBYSCORE … -inf now`, which reaps any token whose lease has elapsed. A worker that dies holding a slot is automatically reclaimed the next time *anyone* checks that user — no separate reaper process required. Set `lease` comfortably above your call timeout (e.g. request timeout + retry budget) so live requests are never evicted out from under themselves.
 
 ### 5.2 The Python wrapper
 
 ```python
 import time
+import uuid
 import redis.asyncio as redis
 from dataclasses import dataclass
 from typing import Optional
@@ -246,6 +266,7 @@ class AdmissionResult:
     ok: bool
     reason: str
     retry_after: int  # seconds; 0 = no hint
+    token: Optional[str] = None  # inflight lease token; pass to release_inflight()
 
 
 class AdmissionController:
@@ -253,9 +274,18 @@ class AdmissionController:
     One Redis round-trip per request. Atomic across all checked dimensions.
     """
 
-    def __init__(self, r: redis.Redis, provider: str = "openai"):
+    def __init__(
+        self,
+        r: redis.Redis,
+        provider: str = "openai",
+        inflight_lease_seconds: int = 120,
+    ):
         self.r = r
         self.provider = provider
+        # Lease must exceed the worst-case time a slot is held (call timeout +
+        # retries). Too short → live requests get reaped; too long → a crashed
+        # worker's slot lingers for `lease` seconds before reclamation.
+        self.inflight_lease_seconds = inflight_lease_seconds
         self._sha: Optional[str] = None
 
     async def _ensure_loaded(self) -> str:
@@ -272,7 +302,9 @@ class AdmissionController:
         provider_rpm_limit: int,
         window_seconds: int = 60,
     ) -> AdmissionResult:
-        window = int(time.time() // window_seconds)
+        now = time.time()
+        window = int(now // window_seconds)
+        token = uuid.uuid4().hex
         sha = await self._ensure_loaded()
 
         result = await self.r.evalsha(
@@ -289,17 +321,28 @@ class AdmissionController:
             inflight_limit,
             provider_rpm_limit,
             window_seconds,
+            now,                          # ARGV[6] now_ts
+            token,                        # ARGV[7] inflight_token
+            self.inflight_lease_seconds,  # ARGV[8] inflight_lease_secs
         )
         ok, reason, retry_after = result
+        ok = bool(ok)
         return AdmissionResult(
-            ok=bool(ok),
+            ok=ok,
             reason=reason.decode() if isinstance(reason, bytes) else reason,
             retry_after=int(retry_after),
+            token=token if ok else None,
         )
 
-    async def release_inflight(self, user_id: str) -> None:
-        """Always call in a `finally` block after the request completes."""
-        await self.r.decr(f"user:{user_id}:inflight")
+    async def release_inflight(self, user_id: str, token: str) -> None:
+        """
+        Always call in a `finally` block after the request completes.
+        Idempotent: ZREM of an already-reaped token is a harmless no-op, so a
+        late release after the lease expired can't double-free someone else's
+        slot. Crash safety does not depend on this call running — the lease
+        does — but releasing promptly frees the slot before the lease elapses.
+        """
+        await self.r.zrem(f"user:{user_id}:inflight", token)
 ```
 
 ### 5.3 The FastAPI endpoint
@@ -338,7 +381,9 @@ async def reserve_admission(user_id: str, limits: dict):
     try:
         yield
     finally:
-        await admission.release_inflight(user_id)
+        # Release this request's lease token. If the worker dies before this
+        # runs, the lease expires and the slot is reclaimed automatically.
+        await admission.release_inflight(user_id, result.token)
 
 
 @app.post("/chat")
@@ -352,6 +397,31 @@ async def chat(request: ChatRequest, user=Depends(auth)):
 ```
 
 That's it. No `AsyncLimiter`. No service mesh. Six keys, one Lua script, one context manager.
+
+### 5.4 Why `inflight` is leased, not a plain counter
+
+The concurrency slot is the one piece of admission state that **outlives the Redis call** — it's held for the whole request, then released. That makes it the only dimension that can leak.
+
+The tempting implementation is `INCR` on admit, `DECR` in a `finally`:
+
+```python
+# ❌ BROKEN under crashes — do not ship this
+await r.incr(f"user:{user_id}:inflight")
+try:
+    ...
+finally:
+    await r.decr(f"user:{user_id}:inflight")   # never runs if the pod is killed
+```
+
+It passes every test on your laptop and leaks in production. When a pod is OOM-killed, evicted, or `SIGKILL`ed mid-request, the `finally` never executes. The counter is stuck one too high *forever* — there is no TTL that can help, because a single integer has no per-request granularity to expire. After enough crashes the user's `inflight` count reaches its limit and they are permanently rejected with `user_inflight`, even with zero real traffic. Debugging it means manually `DECR`-ing a number nobody can explain.
+
+The fix (used in §5.1) is a **leased sorted set**: one member per in-flight request, scored with an expiry timestamp.
+
+- **Admit**: `ZREMRANGEBYSCORE key -inf now` (reap dead leases) → `ZCARD` (count live) → `ZADD key now+lease token`.
+- **Release**: `ZREM key token` — idempotent; a no-op if the lease already expired.
+- **Crash safety**: a dead worker's token simply ages past `now` and is reaped by the *next* admission check for that user. No reaper process, no DECR archaeology. The lease, not the `finally`, is what guarantees the slot comes back.
+
+Choose `lease` ≥ (call timeout + retry budget) so a slow-but-alive request is never evicted out from under itself, but small enough that a crashed slot returns quickly. This is the same crash-safe pattern as a distributed lock with a TTL — concurrency limiting *is* a counting lock.
 
 ---
 
@@ -614,7 +684,10 @@ Useful when a specific model is having issues but others are fine.
 
 ```bash
 redis-cli KEYS "user:abc123:*"
-redis-cli MGET user:abc123:rpm:27891240 user:abc123:tpd:20260417 user:abc123:inflight
+redis-cli MGET user:abc123:rpm:27891240 user:abc123:tpd:20260417
+# inflight is a sorted set, not a string — inspect it with ZCARD / ZRANGE:
+redis-cli ZCARD user:abc123:inflight                       # live slot count
+redis-cli ZRANGE user:abc123:inflight 0 -1 WITHSCORES      # tokens + expiry_ts
 ```
 
 Debugging "why is this user getting 429s" is a `KEYS` away. Compare to debugging an in-process `AsyncLimiter` (you can't, it's per-pod state in someone's Python process).
@@ -685,7 +758,7 @@ Set `authorizer_result_ttl_in_seconds = 0` so each request gets a fresh check �
 | Per-IP limits | Gateway native throttle | Edge |
 | Per-user request count | Redis (sliding counter) + Lambda Authorizer or app | Edge or app |
 | Per-user token quota | Redis (reservation + reconciliation) | App |
-| Per-user concurrency | Redis (`inflight` counter) | App |
+| Per-user concurrency | Redis (`inflight` leased sorted set — crash-safe) | App |
 | Tier / model fairness | Redis (per-tier, per-model keys) | App |
 | Provider rate-limit compliance | Redis (`provider:*` counters, per attempt) | App |
 | Kill switches / overrides | Redis flags | App, settable from CLI |

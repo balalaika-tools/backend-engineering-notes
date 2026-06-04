@@ -168,7 +168,11 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 @pytest.fixture(scope="session")
 def postgres_url():
     with PostgresContainer("postgres:16-alpine") as pg:
-        yield pg.get_connection_url().replace("postgresql://", "postgresql+asyncpg://")
+        # get_connection_url() defaults to the psycopg2 driver, so ask for asyncpg
+        # explicitly. (A naive .replace("postgresql://", ...) silently misses the
+        # "postgresql+psycopg2://" the default returns.) testcontainers no longer
+        # pulls in a driver itself — declare asyncpg in your test dependencies.
+        yield pg.get_connection_url(driver="asyncpg")
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")

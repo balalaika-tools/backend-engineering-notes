@@ -131,37 +131,47 @@ async def merge_streams(
         asyncio.create_task(stream.__anext__()): (i, stream)
         for i, stream in enumerate(streams)
     }
-    
-    while pending:
-        done, _ = await asyncio.wait(
-            pending.keys(),
-            return_when=asyncio.FIRST_COMPLETED,
-            timeout=timeout,
+
+    try:
+        while pending:
+            done, _ = await asyncio.wait(
+                pending.keys(),
+                return_when=asyncio.FIRST_COMPLETED,
+                timeout=timeout,
+            )
+
+            if not done:
+                # Idle timeout: stop. Cleanup happens in `finally`.
+                break
+
+            for task in done:
+                source_idx, stream = pending.pop(task)
+
+                try:
+                    chunk = task.result()
+                    yield source_idx, chunk
+
+                    # Schedule next chunk from same stream
+                    pending[asyncio.create_task(stream.__anext__())] = (source_idx, stream)
+
+                except StopAsyncIteration:
+                    # This stream is done
+                    pass
+
+                except Exception as e:
+                    # This stream errored
+                    yield source_idx, f"ERROR: {e}"
+    finally:
+        # Always runs: idle timeout, error, or consumer disconnect
+        # (GeneratorExit). Cancel in-flight __anext__() tasks and close every
+        # upstream generator so connections are released promptly.
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending.keys(), return_exceptions=True)
+        await asyncio.gather(
+            *(s.aclose() for s in streams if hasattr(s, "aclose")),
+            return_exceptions=True,
         )
-        
-        if not done:
-            # Timeout - cancel remaining
-            for task in pending:
-                task.cancel()
-            break
-        
-        for task in done:
-            source_idx, stream = pending.pop(task)
-            
-            try:
-                chunk = task.result()
-                yield source_idx, chunk
-                
-                # Schedule next chunk from same stream
-                pending[asyncio.create_task(stream.__anext__())] = (source_idx, stream)
-            
-            except StopAsyncIteration:
-                # This stream is done
-                pass
-            
-            except Exception as e:
-                # This stream errored
-                yield source_idx, f"ERROR: {e}"
 
 
 # Usage

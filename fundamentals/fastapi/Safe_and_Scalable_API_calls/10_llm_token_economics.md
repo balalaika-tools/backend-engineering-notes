@@ -350,21 +350,26 @@ The fix is a **circuit breaker** that opens before admission completes — see [
 
 ### 6.6 Prompt caching (Anthropic, OpenAI)
 
-If you're using prompt caching, billed tokens differ from input tokens. The response will include something like:
+If you're using prompt caching, billed tokens differ from input tokens — cached input is much cheaper. Note the exact shape is provider-specific and **cached tokens are a *subset* of the prompt tokens, not an extra field added on top**. For OpenAI's Chat Completions API the cache hit count is nested under `prompt_tokens_details` (check the current API reference, field names move):
 
 ```python
+# OpenAI shape: cached_tokens ⊆ prompt_tokens (NOT additive)
 response.usage = {
-    "prompt_tokens": 5000,
-    "cached_prompt_tokens": 4500,    # cheaper
+    "prompt_tokens": 5000,           # total input; includes the cached part
+    "prompt_tokens_details": {
+        "cached_tokens": 4500,       # of the 5000 above, 4500 were a cache hit
+    },
     "completion_tokens": 200,
-    "total_tokens": 5200,
+    "total_tokens": 5200,            # prompt_tokens + completion_tokens
 }
+# Anthropic reports it differently (cache_read_input_tokens /
+# cache_creation_input_tokens as separate counts) — normalize per provider.
 ```
 
-You need to decide what counts against the user's quota:
+You need to decide what counts against the user's quota. Derive the uncached portion first (`uncached = prompt_tokens - cached_tokens`):
 
 - **Bill total_tokens**: simple, slightly unfair (cached tokens are nearly free).
-- **Bill weighted total**: `cached × 0.1 + uncached × 1.0 + completion × 1.0`. Matches actual cost.
+- **Bill weighted total**: `cached × 0.1 + uncached × 1.0 + completion × 1.0`. Matches actual cost more closely (the `0.1` is illustrative — cache-read discounts vary by provider and change; check current pricing).
 
 Pick one and document it. The reconciliation step uses whichever computed number you choose.
 

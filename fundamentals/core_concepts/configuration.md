@@ -175,17 +175,27 @@ cp .env.example .env
 pydantic-settings automatically converts environment variable strings to Python types:
 
 ```python
+from typing import Optional
+
+from pydantic_settings import BaseSettings
+
+
 class Settings(BaseSettings):
     debug: bool = False          # "true" → True, "1" → True, "false" → False
     port: int = 8000             # "8000" → 8000
     rate_limit: float = 1.5      # "1.5" → 1.5
     allowed_hosts: list[str] = ["localhost"]  # '["localhost","example.com"]' → list
-    workers: int | None = None   # unset → None
+    workers: Optional[int] = None   # unset → None
 ```
 
 ### Required vs Optional
 
 ```python
+from typing import Optional
+
+from pydantic_settings import BaseSettings
+
+
 class Settings(BaseSettings):
     # Required — no default, startup fails if missing
     database_url: str
@@ -196,9 +206,13 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # Optional, can be None
-    sentry_dsn: str | None = None
-    redis_url: str | None = None
+    sentry_dsn: Optional[str] = None
+    redis_url: Optional[str] = None
 ```
+
+> This corpus prefers `Optional[X]` over `X | None`. They are equivalent in
+> Python 3.10+, but `Optional` reads more clearly. See
+> [typing.md](typing.md#2-optional--user-preference-for-this-corpus).
 
 ### Custom Validators
 
@@ -515,6 +529,35 @@ class Settings(BaseSettings):
 
 With `secrets_dir`, pydantic-settings reads `/run/secrets/database_url` as the value for `database_url`.
 
+### `SecretStr` — Keep Secrets Out of Logs and Tracebacks
+
+A plain `str` secret leaks the moment something prints, logs, or `repr()`s your
+settings object — including unhandled-exception tracebacks. Pydantic's
+`SecretStr` masks the value everywhere except where you explicitly unwrap it:
+
+```python
+from typing import Optional
+
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    database_url: str
+    secret_key: SecretStr
+    stripe_key: Optional[SecretStr] = None
+
+
+settings = Settings()
+print(settings.secret_key)                 # SecretStr('**********')
+print(repr(settings))                      # secret_key=SecretStr('**********')
+print(settings.secret_key.get_secret_value())  # the real value — only when you ask
+```
+
+Use `SecretStr` for every credential (`secret_key`, API keys, DB passwords).
+Call `.get_secret_value()` only at the point of use — e.g. when building a
+connection string or signing a token — never when logging.
+
 ### What Not to Do
 
 ```python
@@ -558,7 +601,9 @@ myapp/
 ### `config.py`
 
 ```python
-from pydantic import BaseModel, field_validator, computed_field
+from typing import Optional
+
+from pydantic import BaseModel, SecretStr, field_validator, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -569,7 +614,7 @@ class DatabaseSettings(BaseModel):
 
 
 class AuthSettings(BaseModel):
-    secret_key: str
+    secret_key: SecretStr
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
@@ -600,8 +645,8 @@ class Settings(BaseSettings):
     auth: AuthSettings
 
     # External services
-    sentry_dsn: str | None = None
-    stripe_key: str | None = None
+    sentry_dsn: Optional[str] = None
+    stripe_key: Optional[SecretStr] = None
 
     # Feature flags
     enable_signups: bool = True

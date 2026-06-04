@@ -127,7 +127,7 @@ class Partial(TypedDict, total=False):
 Use when the function/class is parametric in some type and you want the return type to match the input type.
 
 ```python
-from typing import TypeVar
+from typing import Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -144,6 +144,8 @@ With bounds (T must be a subclass of X):
 
 ```python
 from typing import TypeVar
+
+from pydantic import BaseModel
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 

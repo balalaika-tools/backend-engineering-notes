@@ -51,13 +51,14 @@ Rules of thumb:
 
 ```python
 import asyncio
+from typing import Optional
 
-async def producer(q: asyncio.Queue[int | None]):
+async def producer(q: "asyncio.Queue[Optional[int]]"):
     for i in range(100):
         await q.put(i)          # blocks when queue is full → natural backpressure
     await q.put(None)           # sentinel
 
-async def consumer(q: asyncio.Queue[int | None]):
+async def consumer(q: "asyncio.Queue[Optional[int]]"):
     while True:
         item = await q.get()
         if item is None:
@@ -67,7 +68,7 @@ async def consumer(q: asyncio.Queue[int | None]):
         q.task_done()
 
 async def main():
-    q: asyncio.Queue[int | None] = asyncio.Queue(maxsize=10)
+    q: "asyncio.Queue[Optional[int]]" = asyncio.Queue(maxsize=10)
     async with asyncio.TaskGroup() as tg:
         tg.create_task(producer(q))
         tg.create_task(consumer(q))

@@ -177,7 +177,9 @@ with patch("app.routers.users.user_service.get"):
 
 ## `moto` — Mock AWS Services
 
-Intercepts `boto3` and `aioboto3` calls in-memory. No real AWS account touched.
+Intercepts `boto3`/`botocore` calls in-memory. No real AWS account touched.
+
+> **`moto` does not natively intercept `aioboto3`/`aiobotocore`** (async clients). For async AWS code, either run moto in [server mode](https://docs.getmoto.org/en/latest/docs/server_mode.html) and point your client at it, or use a helper like `aiomoto`/`pytest-aiomoto`. The in-process `@mock_aws` decorator below works only for synchronous `boto3`.
 
 ```bash
 pip install moto

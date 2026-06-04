@@ -545,15 +545,19 @@ T2: UPDATE accounts WHERE id = 1 ... (waits for T1 → deadlock)
 4. **Retry on deadlock.** A deadlock is a signal, not a crash — catch and retry with jitter. Dramatiq / Celery workers should already do this; HTTP handlers should do it once per request.
 
 ```python
-from psycopg.errors import DeadlockDetected
+import asyncio
+import random
 from sqlalchemy.exc import DBAPIError
 
+# Match on the SQLSTATE code rather than a driver-specific exception class:
+# 40P01 is "deadlock_detected" for any Postgres driver (asyncpg, psycopg).
 async def with_deadlock_retry(fn, *, max_attempts=3):
     for attempt in range(max_attempts):
         try:
             return await fn()
         except DBAPIError as e:
-            if isinstance(e.orig, DeadlockDetected) and attempt < max_attempts - 1:
+            sqlstate = getattr(e.orig, "sqlstate", None) or getattr(e.orig, "pgcode", None)
+            if sqlstate == "40P01" and attempt < max_attempts - 1:
                 await asyncio.sleep(0.05 * (2 ** attempt) * random.uniform(0.5, 1.5))
                 continue
             raise
@@ -1023,8 +1027,8 @@ asyncpg is the async PostgreSQL driver that SQLAlchemy uses under the hood. You 
 ```python
 import asyncpg
 
-# Create a pool (do this once at startup)
-pool = asyncpg.create_pool(
+# Create a pool (do this once at startup, inside an async context)
+pool = await asyncpg.create_pool(
     dsn="postgresql://user:pass@localhost:5432/mydb",
     min_size=5,      # minimum idle connections
     max_size=20,     # maximum connections
@@ -1157,9 +1161,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 async def bulk_import(db: AsyncSession, records: list[tuple]):
     """Use raw asyncpg connection for bulk import performance."""
-    # Get the underlying asyncpg connection from SQLAlchemy
+    # Get the underlying asyncpg connection from SQLAlchemy.
+    # get_raw_connection() returns SQLAlchemy's adapter wrapper —
+    # .driver_connection unwraps it to the actual asyncpg connection.
     raw_conn = await db.connection()
-    asyncpg_conn = await raw_conn.get_raw_connection()
+    asyncpg_conn = (await raw_conn.get_raw_connection()).driver_connection
 
     # Use asyncpg's COPY protocol directly
     await asyncpg_conn.copy_records_to_table(

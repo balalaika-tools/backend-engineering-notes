@@ -301,10 +301,13 @@ def test_slugify_is_idempotent(text):
     assert once == twice
 
 
-@given(st.integers(min_value=0), st.floats(min_value=0, allow_nan=False, allow_infinity=False))
+@given(
+    st.integers(min_value=0),
+    st.floats(min_value=0, max_value=100, allow_nan=False, allow_infinity=False),
+)
 def test_apply_discount_never_negative(price_int, discount_pct):
     result = apply_percentage_discount(price_int, discount_pct)
-    assert result >= 0 or price_int < 0  # output sign matches input
+    assert result >= 0  # a non-negative price can never discount below zero
 ```
 
 When Hypothesis finds a failing input, it **shrinks** to the simplest example (`""`, `0`, `None`) and saves it for future runs. That shrinking is the feature — it turns "parser crashes on some 3000-character Unicode string" into "parser crashes on `\x00`".

@@ -113,9 +113,9 @@ client = httpx.AsyncClient(http2=True)
 
 ### aiohttp
 
-- Limited HTTP/2 support
-- Not a primary feature
-- May require additional packages
+- No HTTP/2 support (HTTP/1.1 only, as of aiohttp 3.x in 2026)
+- Long-requested but repeatedly deferred upstream
+- You'd need a separate library (e.g. `httpx`, `h2`) for HTTP/2
 
 **Winner**: HTTPX for HTTP/2 use cases.
 
@@ -200,7 +200,7 @@ async with aiohttp.ClientSession() as session:
 | Feature | HTTPX | aiohttp |
 |---------|-------|---------|
 | Sync API | ✅ | ❌ |
-| HTTP/2 | ✅ Native | ⚠️ Limited |
+| HTTP/2 | ✅ Native | ❌ None |
 | WebSockets | ❌ | ✅ Native |
 | DNS caching | ❌ (OS) | ✅ Built-in |
 | Per-host limits | ❌ | ✅ |
@@ -310,7 +310,7 @@ For infrastructure, proxies, WebSockets, or when you need fine-grained control, 
 | Learning curve | Lower | Higher |
 | Defaults | Safe | Minimal |
 | Control | Medium | High |
-| HTTP/2 | Native | Limited |
+| HTTP/2 | Native | None |
 | WebSockets | No | Yes |
 | Footguns | Few | More |
 

@@ -287,18 +287,25 @@ client_idle_timeout = 0      # never close idle client connections
 ### Connecting Through PgBouncer
 
 ```python
+from sqlalchemy.pool import NullPool
+
 # Point your connection string at PgBouncer instead of PostgreSQL directly
 DATABASE_URL = "postgresql+asyncpg://user:pass@pgbouncer-host:6432/mydb"
 
-# CRITICAL with PgBouncer transaction mode:
-# Disable SQLAlchemy's pool — PgBouncer is your pool
+# CRITICAL with PgBouncer transaction mode — two separate things to get right:
+#   1. Don't double-pool: let PgBouncer be the pool (NullPool, or a tiny QueuePool).
+#   2. Disable client-side prepared statements (see "PgBouncer Limitations" below) —
+#      this is mandatory in transaction mode regardless of pool choice.
 engine = create_async_engine(
     DATABASE_URL,
-    poolclass=NullPool,          # one connection per session, no internal pool
-    # OR use a small pool
-    pool_size=2,
-    max_overflow=5,
+    poolclass=NullPool,                       # no internal pool — PgBouncer pools instead
+    connect_args={"statement_cache_size": 0}, # MANDATORY in transaction mode
 )
+
+# Note: NullPool and pool_size/max_overflow are mutually exclusive — NullPool ignores
+# size args. If you prefer a tiny pool instead of NullPool, drop poolclass and use:
+#     pool_size=2, max_overflow=5, pool_pre_ping=True
+# but keep connect_args={"statement_cache_size": 0} either way.
 ```
 
 **Why use `NullPool` or a tiny pool with PgBouncer?**

@@ -184,10 +184,10 @@ def no_retry_task():
 
 ### What Happens After Max Retries
 
-When all retries are exhausted, the message is **not re-enqueued**. By default it is simply logged and discarded. To capture these, you can:
+When all retries are exhausted, the message is **not re-enqueued** onto its original queue. Instead it is moved to a dead-letter queue (the `.XQ` queue — see [Dead Letter Queues](#dead-letter-queues-dlq) below), where it is retained for `dead_message_ttl` (default 7 days) and then dropped. To react to the exhaustion event yourself, you can:
 
-1. Override `after_skip_message` in custom middleware
-2. Use a dead-letter queue pattern (send failed messages to a separate queue)
+1. Override `after_skip_message` in custom middleware (e.g. to alert or copy the payload elsewhere)
+2. Set `on_retries_exhausted` on the `Retries` middleware to run a target actor when retries are exhausted
 
 ```python
 class DeadLetterMiddleware(dramatiq.Middleware):
@@ -572,12 +572,12 @@ dramatiq myapp.tasks --watch .
 When a worker receives `SIGTERM` or `SIGINT`:
 1. It stops consuming new messages
 2. It waits for in-progress tasks to complete (up to a timeout)
-3. Tasks that don't finish in time get an async exception injected by the `ShutdownNotifications` middleware — specifically `dramatiq.middleware.Shutdown`, a subclass of the shared `Interrupted` base class. The companion case, `dramatiq.middleware.TimeLimitExceeded` (also an `Interrupted`), is what you get when your actor's own `time_limit` fires. Catch `Interrupted` to handle both uniformly.
+3. Tasks that don't finish in time get an async exception injected by the `ShutdownNotifications` middleware — specifically `dramatiq.middleware.Shutdown`, a subclass of the shared `dramatiq.middleware.Interrupt` base class. The companion case, `dramatiq.middleware.TimeLimitExceeded` (also an `Interrupt`), is what you get when your actor's own `time_limit` fires. Catch `Interrupt` to handle both uniformly.
 
 > **Caveat:** these exceptions are injected via `PyThreadState_SetAsyncExc`, which only takes effect the next time the target thread acquires the GIL. A task stuck in a blocking C call or `time.sleep()` will not be interrupted until it returns to Python. Use async I/O or checkpoint loops for reliable interruption.
 
 ```python
-from dramatiq.middleware import Interrupted, Shutdown, TimeLimitExceeded
+from dramatiq.middleware import Interrupt, Shutdown, TimeLimitExceeded
 
 @dramatiq.actor(time_limit=600_000)
 def long_running_task():
@@ -611,7 +611,7 @@ dramatiq-dashboard redis://localhost:6379/0
 ### Prometheus Metrics
 
 ```python
-from dramatiq.middleware import Prometheus
+from dramatiq.middleware.prometheus import Prometheus
 
 broker.add_middleware(Prometheus())
 ```
@@ -746,8 +746,10 @@ def charge_customer(charge_id: str, amount_cents: int):
 
 When a task exhausts its retries, by default Dramatiq drops it. For tasks you don't want to lose, enable the DLQ behavior:
 
-- With **RabbitMQ broker**: configure a DLX (dead-letter exchange) at the RabbitMQ level. Tasks exceeding max retries route to the DLX and land in a dedicated queue you can inspect and replay.
-- With **Redis broker**: Dramatiq moves failed messages to `dramatiq:<queue_name>.DLQ` by default when `max_retries` is exhausted. The Dramatiq dashboard (or a custom reader) can display these; you replay manually.
+Dramatiq has dead-lettering **built in** for both brokers: when a message exhausts its retries (or exceeds its age limit), it is moved to a dead-letter queue, kept for `dead_message_ttl` (default **7 days**, `86400000 * 7` ms), then dropped. You inspect and replay manually within that window.
+
+- With **Redis broker**: Dramatiq moves failed messages to a separate sorted set named `dramatiq:<queue_name>.XQ` (the `.XQ` suffix is the dead-letter queue; e.g. the `default` queue dead-letters to `dramatiq:default.XQ`). The Dramatiq dashboard (or a custom reader) can display these.
+- With **RabbitMQ broker**: messages exceeding retries are republished to a dedicated `<queue_name>.XQ` queue with the same 7-day TTL. (This is Dramatiq's own mechanism — distinct from configuring a RabbitMQ-level DLX/dead-letter exchange yourself, which you can still do for transport-level failures.)
 
 Operational checklist:
 
@@ -759,7 +761,7 @@ Operational checklist:
 
 Covered above in the "Graceful Shutdown" subsection. The short version:
 
-1. Catch `Shutdown` (subclass of `Interrupted`) in long-running actors; checkpoint state; re-raise so the worker knows you got the signal.
+1. Catch `Shutdown` (subclass of `Interrupt`) in long-running actors; checkpoint state; re-raise so the worker knows you got the signal.
 2. Set a shutdown timeout on your orchestrator (Kubernetes `terminationGracePeriodSeconds`) longer than the worst-case task duration. Kubernetes default is 30s, which is often too short for background workers.
 3. Message **acks happen after the task returns.** If a worker is SIGKILL'd mid-task, the message returns to the queue and another worker picks it up — so your actor must be idempotent (see above).
 4. For ProcessPool-based workers: forwarding SIGTERM to child processes is your responsibility. Dramatiq handles this but custom pool configurations may not.

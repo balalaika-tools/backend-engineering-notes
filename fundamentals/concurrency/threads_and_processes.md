@@ -263,7 +263,7 @@ if __name__ == "__main__":
     main()
 ```
 
-This guard is also a good habit on Linux. In Python 3.14, `ProcessPoolExecutor` changed away from `fork` as the default process start method, so code that accidentally depended on fork-specific inheritance should pass an explicit `mp_context`.
+This guard is also a good habit on Linux. In Python 3.14, the default start method on POSIX changed from `fork` to `forkserver` (macOS and Windows already defaulted to `spawn`), so code that accidentally depended on fork-specific inheritance should pass an explicit `mp_context`.
 
 ```python
 import multiprocessing

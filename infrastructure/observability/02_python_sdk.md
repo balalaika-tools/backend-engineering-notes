@@ -283,10 +283,20 @@ For SQLAlchemy, instrument either specific engines with `SQLAlchemyInstrumentor(
 
 | Library | What You Get |
 |---|---|
-| `FastAPIInstrumentor` | Span per request, `http.method`, `http.route`, `http.status_code` attributes |
+| `FastAPIInstrumentor` | Span per request, plus HTTP attributes (see semconv note below) |
 | `SQLAlchemyInstrumentor` | Span per query, `db.statement`, `db.system` attributes |
 | `HTTPXClientInstrumentor` | Span per outbound HTTP call, propagates trace context in headers |
 | `RedisInstrumentor` | Span per Redis command |
+
+> **HTTP semantic-conventions naming**: The HTTP semconv is now stable and renamed the
+> request attributes — `http.method` → `http.request.method`, `http.status_code` →
+> `http.response.status_code`, and `http.url` split into `url.path` + `url.query`
+> (`http.route` is unchanged). By default the instrumentation still emits the **old**
+> names for backward compatibility. Set `OTEL_SEMCONV_STABILITY_OPT_IN=http` to emit only
+> the stable names, or `http/dup` to emit both during a phased migration. Write your
+> dashboards, filters, and Collector processors against whichever set you opt into — and
+> note that the Collector `filter`/`attributes` examples in [04](04_collector_config.md)
+> reference `http.route`, which is stable under both naming schemes.
 
 ### Filtering health check spans
 

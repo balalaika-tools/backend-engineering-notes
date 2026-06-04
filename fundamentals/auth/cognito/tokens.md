@@ -84,7 +84,9 @@ response = cognito_client.initiate_auth(
 
 new_tokens = response['AuthenticationResult']
 # new_tokens['AccessToken'], new_tokens['IdToken']
-# A new RefreshToken is NOT issued — the same one keeps working until it expires or is revoked
+# By default a new RefreshToken is NOT issued — the same one keeps working until it
+# expires or is revoked. If you opt into refresh token rotation (see below), a fresh
+# RefreshToken comes back on each refresh and the old one is invalidated.
 ```
 
 ---
@@ -330,6 +332,26 @@ cognito_client.update_user_pool_client(
     ClientId=client_id,
     EnableTokenRevocation=True,
 )
+```
+
+### Refresh Token Rotation (Opt-In, since April 2025)
+
+By default Cognito reuses the same refresh token until it expires. You can opt into
+**rotation** so each refresh returns a brand-new refresh token and invalidates the old
+one — a defense against refresh-token replay that lets you safely use longer refresh TTLs.
+
+```python
+cognito_client.update_user_pool_client(
+    UserPoolId=pool_id,
+    ClientId=client_id,
+    RefreshTokenRotation={
+        'Feature': 'ENABLED',
+        'RetryGracePeriodSeconds': 30,   # old token still works briefly for client retries (max 60)
+    },
+)
+# When enabled, refresh via GetTokensFromRefreshToken or the /oauth2/token endpoint —
+# REFRESH_TOKEN_AUTH on initiate_auth is not compatible with rotation.
+# Requires the Essentials or Plus pricing tier.
 ```
 
 ---
