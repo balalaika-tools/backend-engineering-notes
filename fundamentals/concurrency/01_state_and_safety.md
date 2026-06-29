@@ -160,6 +160,8 @@ class ThreadSafeCache:
 
 If state must be shared, centralize the synchronization. Do not make callers remember which lock protects which dict.
 
+See [threads/02_synchronization_primitives.md](threads/02_synchronization_primitives.md) for lower-level lock, queue, condition variable, and signaling patterns.
+
 ### Externalize cross-process state
 
 Processes do not share Python objects by default. If multiple workers need the same truth, use a system designed for coordination:

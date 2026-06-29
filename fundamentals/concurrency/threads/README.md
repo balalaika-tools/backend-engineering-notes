@@ -9,6 +9,7 @@
 | Guide | Topic |
 |-------|-------|
 | [01_thread_pool_executor.md](01_thread_pool_executor.md) | `ThreadPoolExecutor`, futures, `map`, `submit`, timeouts, shutdown, and deadlocks. |
+| [02_synchronization_primitives.md](02_synchronization_primitives.md) | Locks, try-locks, semaphores, conditions, queues, signaling, reader-writer patterns, livelock, and CAS caveats. |
 | [../01_state_and_safety.md](../01_state_and_safety.md) | Which objects can be shared, which need locks, and what "thread-safe" really means. |
 
 ---
@@ -70,3 +71,5 @@ py-spy top --pid <PID>
 - Prefer `queue.Queue` for handoff instead of shared lists.
 - Use timeouts on blocking waits where shutdown matters.
 - Treat the GIL as an implementation detail, not a correctness primitive.
+
+For the lower-level primitive details, see [02_synchronization_primitives.md](02_synchronization_primitives.md).
