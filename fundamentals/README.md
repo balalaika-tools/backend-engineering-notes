@@ -13,8 +13,8 @@
 
 | Section | Description |
 |---------|-------------|
-| [core_concepts/](core_concepts/README.md) | Python primitives — decorators, exceptions, logging, config, contextvars |
-| [concurrency/](concurrency/README.md) | Threads, processes, async/await, the GIL, event loops, production patterns |
+| [core_concepts/](core_concepts/README.md) | Python primitives — decorators, exceptions, logging, configuration |
+| [concurrency/](concurrency/README.md) | Threads, processes, async/await, the GIL, event loops, contextvars, production patterns |
 | [httpx/](httpx/README.md) | HTTP client internals — pooling, timeouts, streaming |
 | [fastapi/](fastapi/README.md) | Framework patterns, DI, Pydantic, auth, middleware, WebSockets, streaming |
 | [database/](database/README.md) | PostgreSQL, Python drivers, SQLAlchemy ORM, async patterns, connection pooling |
@@ -26,7 +26,7 @@
 
 ### New to Python Backend
 
-1. [core_concepts/](core_concepts/README.md) — decorators, exceptions, logging, contextvars
+1. [core_concepts/](core_concepts/README.md) — decorators, exceptions, logging, configuration
 2. [concurrency/](concurrency/README.md) — threads, processes, async
 3. [httpx/](httpx/README.md) — HTTP client internals
 4. [fastapi/ 01-03](fastapi/README.md) — parameters, DI, Pydantic
@@ -39,7 +39,7 @@
 3. [fastapi/05_middleware.md](fastapi/05_middleware.md) — request ID, CORS, timing
 4. [fastapi/07_error_handling.md](fastapi/07_error_handling.md) — consistent error shapes
 5. [core_concepts/structlog_guide.md](core_concepts/structlog_guide.md) — structured logging
-6. [core_concepts/contextvars.md](core_concepts/contextvars.md) — request-scoped state
+6. [concurrency/async/03_contextvars.md](concurrency/async/03_contextvars.md) — request-scoped state
 
 ### Calling External APIs / LLMs
 

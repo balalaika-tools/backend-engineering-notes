@@ -16,7 +16,7 @@
 ## Prerequisites
 
 - [FastAPI Dependency Injection](../../fundamentals/fastapi/02_dependency_injection.md) — `Depends` pattern is the foundation of testable FastAPI code.
-- [Async Tutorial](../../fundamentals/concurrency/async_tutorial.md) — event loop basics, helpful for [06](06_async_testing.md).
+- [Async Tutorial](../../fundamentals/concurrency/async/01_event_loop_and_tasks.md) — event loop basics, helpful for [06](06_async_testing.md).
 - Basic pytest familiarity (fixtures, assertions, running a suite).
 
 ---

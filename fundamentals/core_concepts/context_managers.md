@@ -256,7 +256,7 @@ Return `None` (or nothing) unless you specifically mean to suppress.
 | File | Context manager usage |
 |------|-----------------------|
 | [fastapi/02_dependency_injection.md](../fastapi/02_dependency_injection.md) | `yield`-based dependencies (same generator-CM pattern) + `@asynccontextmanager` lifespan |
-| [core_concepts/contextvars.md](./contextvars.md) | `contextvars.Context().run(...)` and the set/reset `try/finally` pattern |
+| [concurrency/async/03_contextvars.md](../concurrency/async/03_contextvars.md) | `contextvars.Context().run(...)` and the set/reset `try/finally` pattern |
 | [database/04_async_sqlalchemy.md](../database/04_async_sqlalchemy.md) | `async with session.begin():` for transactions |
 | [httpx/01_mental_model.md](../httpx/01_mental_model.md) | `async with httpx.AsyncClient() as client:` |
 | [infrastructure/redis/03_caching_patterns.md](../../infrastructure/redis/03_caching_patterns.md) | Distributed lock context managers |

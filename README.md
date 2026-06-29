@@ -19,8 +19,8 @@ python-backend-notes/
 │
 │ ── FUNDAMENTALS ────────────────────────────────────────
 ├── fundamentals/
-│   ├── core_concepts/     Python primitives — decorators, exceptions, logging, config, contextvars
-│   ├── concurrency/       Threads, processes, async/await, event loops
+│   ├── core_concepts/     Python primitives — decorators, exceptions, logging, config
+│   ├── concurrency/       Threads, processes, async/await, event loops, contextvars
 │   ├── httpx/             HTTP client internals
 │   ├── fastapi/           Framework patterns + Safe & Scalable API calls
 │   ├── database/          PostgreSQL, SQLAlchemy, Alembic, async patterns
@@ -62,9 +62,8 @@ python-backend-notes/
 | [Decorators](fundamentals/core_concepts/decorators.md) | `@` syntax, `functools.wraps`, parameterized decorators |
 | [Exceptions](fundamentals/core_concepts/exceptions.md) | Propagation, `raise` variants, `raise from`, production patterns |
 | [Logging](fundamentals/core_concepts/logging/README.md) | Logger hierarchy, `propagate`, handler/formatter pipeline, per-module vs universal |
-| [Structured Logging](fundamentals/core_concepts/structlog_guide.md) | structlog, processors, FastAPI integration, contextvars |
+| [Structured Logging](fundamentals/core_concepts/structlog_guide.md) | structlog, processors, FastAPI integration, request context |
 | [Configuration](fundamentals/core_concepts/configuration.md) | pydantic-settings, `.env` files, secrets, validation |
-| [ContextVars](fundamentals/core_concepts/contextvars.md) | Request-scoped state, async-safe thread-locals, propagation patterns |
 
 #### Concurrency & Parallelism
 
@@ -72,10 +71,11 @@ python-backend-notes/
 
 | Guide | Description |
 |-------|-------------|
-| [Threads vs Processes vs Async](fundamentals/concurrency/threads_vs_processes_vs_async.md) | GIL, free-threaded Python (3.14), when to use threads vs processes vs async |
-| [Threads and Processes](fundamentals/concurrency/threads_and_processes.md) | `ThreadPoolExecutor`, `ProcessPoolExecutor`, `InterpreterPoolExecutor`, `submit`, `map`, `as_completed` |
-| [Async Tutorial](fundamentals/concurrency/async_tutorial.md) | Event loop, coroutines vs tasks, `TaskGroup`, `run_in_executor` |
-| [Production Patterns](fundamentals/concurrency/production_patterns.md) | Semaphores, queues, timeouts, cancellation, `contextvars`, graceful shutdown |
+| [Decision Guide](fundamentals/concurrency/00_decision_guide.md) | When to use async, threads, processes, subinterpreters, or job queues |
+| [State and Safety](fundamentals/concurrency/01_state_and_safety.md) | Mutable state, sharing boundaries, thread safety, async safety, process safety |
+| [Asyncio](fundamentals/concurrency/async/README.md) | Event loop, tasks, `TaskGroup`, production async patterns, `contextvars` |
+| [Threads](fundamentals/concurrency/threads/README.md) | `ThreadPoolExecutor`, thread primitives, blocking I/O, shared memory |
+| [Processes](fundamentals/concurrency/processes/README.md) | `ProcessPoolExecutor`, pickling, start methods, CPU parallelism |
 
 #### HTTP Clients
 
@@ -216,12 +216,12 @@ python-backend-notes/
 
 ### New to Python Backend
 
-1. [Core Concepts](fundamentals/core_concepts/README.md) — decorators, exceptions, logging, contextvars
-2. [Concurrency](fundamentals/concurrency/README.md) — threads, processes, async
+1. [Core Concepts](fundamentals/core_concepts/README.md) — decorators, exceptions, logging, configuration
+2. [Concurrency](fundamentals/concurrency/README.md) — threads, processes, async, contextvars
 3. [HTTPX](fundamentals/httpx/README.md) — HTTP client internals
 4. [FastAPI 01-03](fundamentals/fastapi/README.md) — parameters, DI, Pydantic
-5. [Database](fundamentals/database/README.md) — SQL foundations → drivers → ORM → async patterns
-6. [Testing](operations/testing/README.md) — pytest + FastAPI, unit → endpoint → coverage
+5. [Database](fundamentals/database/README.md) — SQL foundations -> drivers -> ORM -> async patterns
+6. [Testing](operations/testing/README.md) — pytest + FastAPI, unit -> endpoint -> coverage
 
 ### Building a Production API
 
@@ -230,7 +230,7 @@ python-backend-notes/
 3. [Middleware](fundamentals/fastapi/05_middleware.md) — request ID, timing, CORS
 4. [Error Handling](fundamentals/fastapi/07_error_handling.md) — consistent error responses
 5. [Structured Logging](fundamentals/core_concepts/structlog_guide.md) — structlog
-6. [ContextVars](fundamentals/core_concepts/contextvars.md) — request-scoped state propagation
+6. [ContextVars](fundamentals/concurrency/async/03_contextvars.md) — request-scoped state propagation
 7. [Docker](operations/deployment/docker_and_deployment.md) — containerization
 
 ### Calling External APIs / LLMs

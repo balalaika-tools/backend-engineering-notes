@@ -236,7 +236,7 @@ What happened:
 
 ## ContextVars in Threaded Code
 
-Context does **NOT** auto-propagate to threads you spawn manually. If you create a raw thread, it starts with an empty/default context.
+Context does **not** reliably auto-propagate to threads you spawn manually. On normal builds, a new raw thread starts with an empty/default context unless you explicitly pass or run a copied context. Modern Python also exposes thread context controls, but production code should still make propagation explicit where request context matters.
 
 ### The problem
 
@@ -249,7 +249,7 @@ request_id: ContextVar[str] = ContextVar('request_id', default='none')
 request_id.set('abc-123')
 
 def worker():
-    # ❌ This sees 'none' (the default), not 'abc-123'
+    # This usually sees 'none' (the default), not 'abc-123'
     print(f"Worker sees: {request_id.get()}")
 
 t = threading.Thread(target=worker)
@@ -271,16 +271,16 @@ request_id.set('abc-123')
 ctx = contextvars.copy_context()
 
 def worker():
-    print(f"Worker sees: {request_id.get()}")  # ✅ abc-123
+    print(f"Worker sees: {request_id.get()}")  # abc-123
 
 t = threading.Thread(target=ctx.run, args=(worker,))
 t.start()
 t.join()
 ```
 
-### The `run_in_executor` pattern (common in FastAPI)
+### Prefer `asyncio.to_thread()` from async code
 
-When you call a sync function from async code using `run_in_executor`, **asyncio copies context automatically**:
+When you call a sync function from async code and want context propagation, prefer `asyncio.to_thread()`. The Python docs explicitly state that it propagates the current `contextvars.Context` to the worker thread:
 
 ```python
 import asyncio
@@ -289,17 +289,17 @@ from contextvars import ContextVar
 request_id: ContextVar[str] = ContextVar('request_id', default='none')
 
 def sync_db_query():
-    # ✅ This works — asyncio copies context into the executor thread
     rid = request_id.get()
     print(f"DB query for request: {rid}")
 
 async def handle_request():
     request_id.set('abc-123')
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, sync_db_query)
+    await asyncio.to_thread(sync_db_query)
 ```
 
-`asyncio.loop.run_in_executor()` automatically wraps the callable with `copy_context().run()` **only when you use the default executor** (pass `None` as the first argument). If you pass a **custom** `Executor` — a ThreadPoolExecutor you created yourself, a ProcessPoolExecutor, etc. — the event loop does not copy context for you, and the executor thread will see empty ContextVars. In that case, or if you use a raw `ThreadPoolExecutor` outside of asyncio, you need to copy context yourself:
+### Custom executors and `run_in_executor()`
+
+`loop.run_in_executor()` is an executor dispatch API. Do not rely on it to propagate context for you. If you use a raw `ThreadPoolExecutor`, a custom executor, or `loop.run_in_executor(...)`, copy context yourself:
 
 ```python
 from contextvars import ContextVar, copy_context
@@ -315,14 +315,22 @@ def main():
     ctx = copy_context()
 
     with ThreadPoolExecutor() as pool:
-        # ✅ Run inside the copied context
+        # Run inside the copied context.
         future = pool.submit(ctx.run, blocking_work)
         future.result()  # Thread sees: req-xyz
 
 main()
 ```
 
-The same `ctx.run(...)` wrapping is required when you hand a custom executor to `loop.run_in_executor(custom_executor, fn)` — the auto-copy only applies to the default executor.
+The same `ctx.run(...)` wrapping works when you hand a custom executor to `loop.run_in_executor(...)`:
+
+```python
+async def handle_request_with_pool(pool):
+    request_id.set("req-xyz")
+    ctx = copy_context()
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(pool, ctx.run, blocking_work)
+```
 
 ---
 
@@ -549,11 +557,9 @@ process_order.send(order_id=42, request_id=req_id)
 |-----------|-------------|-------------|----------------------|---------------------|
 | Global variable | Shared (broken) | Shared (broken) | Shared (broken) | Isolated |
 | `threading.local()` | Isolated | **Shared (broken)** | Isolated | N/A |
-| `ContextVar` | Isolated* | **Isolated** | Not propagated** | Not propagated |
+| `ContextVar` | Per context | **Isolated** | Explicit propagation recommended | Not propagated |
 
-\* `ContextVar` in sync threads: isolated **if** using `copy_context().run()`, otherwise shares the main thread's context.
-
-\** You must manually call `copy_context()` and use `ctx.run()` in the new thread. `asyncio.loop.run_in_executor()` does this automatically.
+For manually created threads, use `copy_context().run(...)` or the modern `threading.Thread(..., context=...)` API where available. For async-to-thread offloading, `asyncio.to_thread()` propagates context. For `run_in_executor()` and custom executors, wrap the callable with `copy_context().run(...)`.
 
 ---
 
@@ -562,7 +568,7 @@ process_order.send(order_id=42, request_id=req_id)
 ### Mistake 1: Setting at module level
 
 ```python
-# ❌ This runs once at import time — affects ALL requests
+# This runs once at import time and affects the current import context.
 request_id: ContextVar[str] = ContextVar('request_id')
 request_id.set("oops")  # set in module scope = shared default for main context
 ```
@@ -572,13 +578,13 @@ request_id.set("oops")  # set in module scope = shared default for main context
 ### Mistake 2: Forgetting to reset (token pattern)
 
 ```python
-# ❌ If do_work() raises, the value leaks into subsequent code in the same context
+# If do_work() raises, the value leaks into subsequent code in the same context.
 request_id.set("abc-123")
 do_work()
 ```
 
 ```python
-# ✅ Always reset in a finally block
+# Always reset in a finally block.
 token = request_id.set("abc-123")
 try:
     do_work()
@@ -591,7 +597,7 @@ In practice, asyncio tasks are short-lived (one per request), so leaking within 
 ### Mistake 3: Assuming propagation to sub-processes
 
 ```python
-# ❌ Celery/Dramatiq workers are separate processes — context doesn't cross
+# Celery/Dramatiq workers are separate processes. Context does not cross.
 request_id_var.set("abc-123")
 my_celery_task.delay()  # worker has no idea about request_id_var
 ```
@@ -599,58 +605,59 @@ my_celery_task.delay()  # worker has no idea about request_id_var
 ### Mistake 4: Not copying context when spawning threads manually
 
 ```python
-# ❌ Thread gets empty/default context
+# Thread usually gets empty/default context.
 threading.Thread(target=worker).start()
 
-# ✅ Copy context explicitly
+# Copy context explicitly.
 ctx = contextvars.copy_context()
 threading.Thread(target=ctx.run, args=(worker,)).start()
 ```
 
 ---
 
-## 🔟 Mental Model
+## Mental Model
 
 > **ContextVars = "async-safe thread-locals".**
 >
 > * Each `asyncio` Task automatically gets its own copy.
-> * For threads, you copy explicitly with `copy_context().run()`.
+> * For threads, make propagation explicit with `copy_context().run()` or `asyncio.to_thread()`.
 > * For processes, you serialize and restore manually.
 
 ```text
 Request comes in
-  └─ Middleware sets ContextVar
-       └─ Handler reads it ✅
-            ├─ await sub_call() → same task, same context ✅
-            ├─ create_task()   → NEW task, gets a COPY ✅
-            ├─ run_in_executor() → new thread, asyncio copies for you ✅
-            ├─ Thread(target=fn) → ❌ must copy_context().run() yourself
-            └─ celery_task.delay() → ❌ separate process, must serialize
+  -> Middleware sets ContextVar
+     -> Handler reads it
+        -> await sub_call(): same task, same context
+        -> create_task(): new task, gets a copy
+        -> asyncio.to_thread(): worker thread gets propagated context
+        -> run_in_executor(): copy context yourself when needed
+        -> Thread(target=fn): copy context yourself
+        -> celery_task.delay(): separate process, serialize values
 ```
 
 ### When to use ContextVars
 
-* **Request ID / correlation ID** — the #1 use case
-* **Current user / auth context** — avoid passing `user` through 10 layers
-* **Database session** — scoped to a request
-* **Structured logging** — auto-inject request metadata into every log line
-* **Feature flags** — evaluated once per request, available everywhere
+* **Request ID / correlation ID** - the main use case
+* **Current user / auth context** - avoid passing `user` through 10 layers
+* **Database session** - scoped to a request
+* **Structured logging** - auto-inject request metadata into every log line
+* **Feature flags** - evaluated once per request, available everywhere
 
 ### When NOT to use ContextVars
 
-* **Passing data between two specific functions** — just use function arguments
-* **Sharing state across processes** — use Redis, a database, or message queues
-* **Global configuration** — use regular module-level constants or settings objects
+* **Passing data between two specific functions** - just use function arguments
+* **Sharing state across processes** - use Redis, a database, or message queues
+* **Global configuration** - use regular module-level constants or settings objects
 
 ---
 
-## ✅ TL;DR
+## TL;DR
 
 1. **Declare** `ContextVar` at module level (like you would a logger).
 2. **Set** inside middleware or request handlers with `token = var.set(value)`.
 3. **Read** anywhere in the call chain with `var.get()`.
 4. **Reset** in a `finally` block with `var.reset(token)`.
-5. **Background tasks** in the same process: use `copy_context().run()`.
+5. **Thread offload**: prefer `asyncio.to_thread()` or wrap custom executor calls with `copy_context().run()`.
 6. **Cross-process workers** (Celery, Dramatiq): pass values as explicit arguments.
 
 ```python
@@ -672,3 +679,10 @@ def get_request_id() -> str:
 ```
 
 ---
+
+## References
+
+* [`contextvars`](https://docs.python.org/3/library/contextvars.html)
+* [`asyncio.to_thread`](https://docs.python.org/3/library/asyncio-task.html#asyncio.to_thread)
+* [`loop.run_in_executor`](https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.run_in_executor)
+* [`threading.Thread`](https://docs.python.org/3/library/threading.html#threading.Thread)

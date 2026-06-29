@@ -17,9 +17,8 @@
 | [decorators.md](decorators.md) | Decorators | `@` syntax, `functools.wraps`, parameterized decorators |
 | [exceptions.md](exceptions.md) | Exceptions | Propagation, `raise` variants, `raise from`, production patterns |
 | [logging/](logging/README.md) | Logging | Logger hierarchy, `propagate`, handler/formatter pipeline, per-module vs universal |
-| [structlog_guide.md](structlog_guide.md) | Structured Logging | structlog, processors, FastAPI integration, contextvars |
+| [structlog_guide.md](structlog_guide.md) | Structured Logging | structlog, processors, FastAPI integration, request context |
 | [configuration.md](configuration.md) | Configuration | pydantic-settings, `.env`, secrets, validation |
-| [contextvars.md](contextvars.md) | ContextVars | Request-scoped state, async-safe thread-locals, propagation patterns |
 | [signals.md](signals.md) | Unix Signals | SIGTERM/SIGKILL/SIGINT, graceful shutdown, lifespan, async signal handling |
 
 ---
@@ -33,8 +32,9 @@
 5. **Logging** — stdlib logging: basics → hierarchy → handlers → patterns
 6. **Structured Logging** — upgrade to structlog for production
 7. **Configuration** — manage settings and secrets
-8. **ContextVars** — request-scoped state that flows through async code
-9. **Signals** — graceful shutdown, SIGTERM handling, uvicorn lifespan pattern
+8. **Signals** — graceful shutdown, SIGTERM handling, uvicorn lifespan pattern
+
+For request-scoped state and async-safe context propagation, read [concurrency/async/03_contextvars.md](../concurrency/async/03_contextvars.md).
 
 ---
 

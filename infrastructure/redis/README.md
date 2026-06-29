@@ -60,5 +60,5 @@ Redis is an **in-memory data structure store** that serves data over TCP. It is 
 
 - **Basic Python** — `async`/`await`, context managers, type hints
 - **Networking basics** — TCP connections, client-server model, connection pooling
-- [Concurrency & Async](../../fundamentals/concurrency/async_tutorial.md) — event loops before using async Redis clients
+- [Concurrency & Async](../../fundamentals/concurrency/async/01_event_loop_and_tasks.md) — event loops before using async Redis clients
 - [FastAPI Dependency Injection](../../fundamentals/fastapi/02_dependency_injection.md) — for the FastAPI integration patterns in `04`

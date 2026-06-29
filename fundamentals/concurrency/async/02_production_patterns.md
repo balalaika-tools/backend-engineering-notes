@@ -1,6 +1,6 @@
-# Production Concurrency Patterns
+# Async Production Patterns
 
-The earlier files cover *how* threads, processes, and asyncio work. This file covers the patterns you need the moment code leaves your laptop — **bounding**, **timing out**, **cancelling**, **propagating context**, and **shutting down cleanly**.
+The earlier async guide covers how the event loop and tasks work. This file covers the patterns you need the moment async code leaves your laptop: **bounding**, **timing out**, **cancelling**, **propagating context**, and **shutting down cleanly**.
 
 ---
 
@@ -237,36 +237,16 @@ In production, track the event-loop lag metric (`asyncio`'s `slow_callback_durat
 
 ---
 
-## Thread-safety primitives (for threaded code)
+## Crossing out of async
 
-When you do use threads, the basics:
+Async programs often need to call sync code or CPU-heavy code. Use the matching tool:
 
-| Primitive             | Use for                                           |
-|-----------------------|---------------------------------------------------|
-| `threading.Lock`      | Mutual exclusion around shared mutable state      |
-| `threading.RLock`     | Same, but the same thread can re-acquire it       |
-| `threading.Event`     | One-shot "go" signal between threads              |
-| `queue.Queue`         | Thread-safe producer / consumer queue             |
-| `threading.local`     | Per-thread storage (does **not** cross `await`)   |
-
-In the free-threaded (`python3.14t`) build, you need these for real. On the GIL build, many racy patterns appeared to work because the GIL serialized bytecode execution, but that was never a good synchronization contract.
-
----
-
-## Subinterpreters (PEP 734, Python 3.13+)
-
-A third option alongside threads and processes: each subinterpreter is an isolated Python interpreter **in the same process**, with its own GIL. `concurrent.futures.InterpreterPoolExecutor` landed in Python 3.14. It can provide true multi-core parallelism on the default GIL build, but callables, arguments, and return values are still serialized with `pickle`, and mutable Python objects cannot be shared directly across interpreters.
-
-Use when:
-
-* You want CPU parallelism on the default (GIL) build
-* Process startup overhead is a real problem
-* You can accept a young API
-
-Skip when:
-
-* Free-threaded Python already works for your dependency graph
-* Multiprocessing is already fast enough
+| Need | Tool | Guide |
+|------|------|-------|
+| Quick blocking I/O offload | `asyncio.to_thread()` | [01_event_loop_and_tasks.md](01_event_loop_and_tasks.md#asyncioto_thread-python-39) |
+| Dedicated blocking I/O pool | `ThreadPoolExecutor` | [../threads/01_thread_pool_executor.md](../threads/01_thread_pool_executor.md) |
+| CPU-heavy Python work | `ProcessPoolExecutor` | [../processes/01_process_pool_executor.md](../processes/01_process_pool_executor.md) |
+| Shared state rules | Locks, queues, ownership | [../01_state_and_safety.md](../01_state_and_safety.md) |
 
 ---
 

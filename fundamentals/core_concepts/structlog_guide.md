@@ -423,7 +423,7 @@ log.info("processing")
 
 ### Request Logging Middleware
 
-This is the production pattern. A middleware that automatically adds context to every log within a request. The middleware mechanics (setting a contextvar on entry, resetting on exit, propagating through async code) are the same as any request-id middleware — see [contextvars.md §Pattern 1: Request ID Middleware](./contextvars.md#pattern-1-request-id-middleware-fastapi) for the general form. The structlog-specific part below is how `bind_contextvars` puts the same values into every subsequent `structlog.get_logger().info(...)` call without any manual passing.
+This is the production pattern. A middleware that automatically adds context to every log within a request. The middleware mechanics (setting a contextvar on entry, resetting on exit, propagating through async code) are the same as any request-id middleware — see [ContextVars - Pattern 1: Request ID Middleware](../concurrency/async/03_contextvars.md#pattern-1-request-id-middleware-fastapi) for the general form. The structlog-specific part below is how `bind_contextvars` puts the same values into every subsequent `structlog.get_logger().info(...)` call without any manual passing.
 
 ```python
 import uuid
