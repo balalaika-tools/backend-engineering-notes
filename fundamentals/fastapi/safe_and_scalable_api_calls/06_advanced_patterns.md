@@ -22,8 +22,77 @@ In a multi-pod environment:
 | Circuit breaker | Global | Redis | All pods must agree when to stop |
 | Vendor rate limit | Global | Redis | Vendor sees all pods |
 | Semaphore | Local | In-memory | Pod capacity is per-pod |
+| Bulkhead | Local or partitioned | Separate pools/queues | One dependency or tenant must not consume all capacity |
+| Hedged request | Local decision + global budget | In-memory + Redis quota | Duplicate only slow tail calls, not every call |
 | Load shedding | Local | In-memory | Pod health is local |
 | Adaptive retry | Local | In-memory | Based on local conditions |
+
+---
+
+### Bulkhead Isolation
+
+A semaphore protects one shared pool. A bulkhead creates **separate pools** so one slow dependency, model, tenant, or workload cannot consume capacity reserved for another.
+
+```python
+import asyncio
+
+
+bulkheads = {
+    "openai": asyncio.Semaphore(40),
+    "anthropic": asyncio.Semaphore(20),
+    "embeddings": asyncio.Semaphore(10),
+}
+
+
+async def call_with_bulkhead(kind: str, call):
+    async with bulkheads[kind]:
+        return await call()
+```
+
+Use bulkheads when:
+
+- One vendor outage should not starve all other vendors.
+- Batch jobs should not steal capacity from interactive requests.
+- A noisy tenant should not exhaust shared model concurrency.
+- Queue workers have different SLAs.
+
+Bulkheads cost efficiency. If the `embeddings` pool is idle, `openai` calls cannot automatically use that capacity unless you design an overflow rule. That tradeoff is the point: reliability sometimes means leaving capacity fenced off.
+
+---
+
+### Hedging: Tail-Latency Mitigation
+
+A hedged request starts a second copy only after the first copy is unusually slow. Whichever finishes first wins; the loser is cancelled or ignored.
+
+```python
+import asyncio
+
+
+async def hedged_call(primary, duplicate, *, hedge_after: float = 1.5):
+    first = asyncio.create_task(primary())
+
+    try:
+        return await asyncio.wait_for(asyncio.shield(first), timeout=hedge_after)
+    except TimeoutError:
+        second = asyncio.create_task(duplicate())
+        done, pending = await asyncio.wait(
+            {first, second},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+        return done.pop().result()
+```
+
+Hedging is **not** a normal retry. It spends extra vendor capacity to reduce p95/p99 latency. Only use it when all of these are true:
+
+- The operation is read-only or safely idempotent.
+- The upstream has spare capacity.
+- You have a global hedge budget, so a tail-latency event does not double cluster traffic.
+- You cancel or ignore the losing request quickly.
+- You measure whether p99 improves enough to justify the extra cost.
+
+For LLM calls, hedging is usually a premium-feature or incident-mode tool, not a default. It can double token spend if both calls complete.
 
 ---
 
@@ -586,6 +655,16 @@ async def complete_llm_call(
 - Variable latency
 - Need to reduce retry storms
 
+**Bulkheads**:
+- One dependency or tenant can exhaust shared capacity
+- Interactive and batch work have different SLAs
+- You need hard capacity fences, not just fair scheduling
+
+**Hedging**:
+- Tail latency matters more than marginal cost
+- The operation is idempotent/read-only
+- You can enforce a global duplicate-request budget
+
 **Load shedding**:
 - Traffic spikes
 - Tier-based service
@@ -599,12 +678,13 @@ async def complete_llm_call(
 2. ✅ Vendor rate limiters **must be shared** (Redis)
 3. ✅ User rate limiters **must be shared** (Redis)
 4. ⚠️ Priority queues are shared **only if backlog exists**
-5. ❌ Adaptive retries are always **local**
-6. ❌ Load shedding is **early and local**
-7. ❌ Semaphores are always **local**
-8. ❗ Never sleep while holding semaphores
-9. ❗ Never retry during overload
-10. ❗ Global limits protect vendors, local limits protect pods
+5. ✅ Hedge budgets **must be shared** if hedging can affect vendor capacity
+6. ❌ Adaptive retries are always **local**
+7. ❌ Load shedding is **early and local**
+8. ❌ Semaphores and bulkheads are usually **local**
+9. ❗ Never sleep while holding semaphores
+10. ❗ Never retry or hedge during overload
+11. ❗ Global limits protect vendors, local limits protect pods
 
 ---
 
@@ -617,10 +697,20 @@ async def complete_llm_call(
 | Queue timeout | Local | In-memory | Admission control |
 | Load shedding | Local | In-memory | Early rejection |
 | Adaptive retry | Local | In-memory | Conditional retry |
+| Bulkhead | Local / partitioned | Separate semaphores, queues, workers | Failure isolation |
+| Hedge budget | Global | Redis | Bound duplicate traffic |
 | Circuit breaker | Global | Redis | Coordinated failure |
 | Vendor rate limiter | Global | Redis | Vendor contract |
 | User rate limiter | Global | Redis | Fairness |
 | Priority queue | Global | Redis | Global ordering |
+
+---
+
+## References
+
+- [Azure Architecture Center - Bulkhead pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/bulkhead)
+- [Google Research - The Tail at Scale](https://research.google/pubs/the-tail-at-scale/)
+- [Google SRE - Handling Overload](https://sre.google/sre-book/handling-overload/)
 
 ---
 

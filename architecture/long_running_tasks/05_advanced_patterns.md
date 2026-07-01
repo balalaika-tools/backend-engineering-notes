@@ -136,7 +136,7 @@ What vendors mean by "exactly-once":
 
 The idempotent consumer is the key. Your handler must survive being called with the same message twice. Patterns:
 
-- **Dedup table**: record processed message IDs; reject duplicates. Matches the idempotency-key pattern in [`Safe_and_Scalable_API_calls/11_idempotency.md`](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/11_idempotency.md).
+- **Dedup table**: record processed message IDs; reject duplicates. Matches the idempotency-key pattern in [`safe_and_scalable_api_calls/11_idempotency.md`](../../fundamentals/fastapi/safe_and_scalable_api_calls/11_idempotency.md).
 - **Upsert, not insert**: if the outcome is deterministic given the input, use `INSERT ... ON CONFLICT DO UPDATE` or equivalent.
 - **Read-before-write**: for operations where idempotency is naturally expressible ("set balance to X" is idempotent; "increment balance by X" is not), express them in the idempotent form.
 
@@ -256,4 +256,4 @@ Tracing every request is expensive. Sample aggressively — 1% is a reasonable s
 
 - [02_worker_patterns.md](./02_worker_patterns.md) — worker patterns that consume these.
 - [04_infrastructure.md](./04_infrastructure.md) — the Redis / SQS / Kafka pieces the outbox relies on.
-- [`Safe_and_Scalable_API_calls/11_idempotency.md`](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/11_idempotency.md) — the consumer-side idempotency that makes at-least-once safe.
+- [`safe_and_scalable_api_calls/11_idempotency.md`](../../fundamentals/fastapi/safe_and_scalable_api_calls/11_idempotency.md) — the consumer-side idempotency that makes at-least-once safe.

@@ -67,4 +67,4 @@ client = httpx.AsyncClient(
 
 Once you understand HTTPX internals, proceed to:
 
-**[Safe and Scalable API Calls](../fastapi/Safe_and_Scalable_API_calls/README.md)** — production-grade external API call patterns built on top of HTTPX.
+**[Safe and Scalable API Calls](../fastapi/safe_and_scalable_api_calls/README.md)** — production-grade external API call patterns built on top of HTTPX.

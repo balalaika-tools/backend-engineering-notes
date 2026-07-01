@@ -465,7 +465,7 @@ For **distributed mutual exclusion** — "only one worker runs this side effect 
 **Practical guidance for this corpus:**
 
 - For **cache stampedes** (this section): single-node `SET NX` is fine; the downside is "more DB queries," not correctness.
-- For **idempotency keys** (see [`Safe_and_Scalable_API_calls/11_idempotency.md`](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/11_idempotency.md)): use a unique constraint in the database, not a Redis lock.
+- For **idempotency keys** (see [`safe_and_scalable_api_calls/11_idempotency.md`](../../fundamentals/fastapi/safe_and_scalable_api_calls/11_idempotency.md)): use a unique constraint in the database, not a Redis lock.
 - For **"only one worker should run this cron"**: a single-node Redis lock with a short TTL and idempotent work is usually fine. If duplicate execution would be catastrophic, use a database-backed lock or a proper leader-election primitive (etcd, ZooKeeper, Consul).
 - For **cross-region mutual exclusion where correctness matters**: Redis is the wrong tool. Use Postgres advisory locks, or a consensus system (etcd, ZooKeeper).
 

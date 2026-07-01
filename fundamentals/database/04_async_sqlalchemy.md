@@ -542,26 +542,31 @@ T2: UPDATE accounts WHERE id = 1 ... (waits for T1 → deadlock)
 1. **Order operations by primary key.** If every transaction touches rows in ascending `id` order, you cannot deadlock by definition — each transaction is ahead of or behind every other by lock order.
 2. **Use `SELECT ... FOR UPDATE` early in the transaction**, not mid-way. Acquiring the locks you'll need upfront makes the lock order explicit.
 3. **Short transactions.** Long transactions hold locks longer; longer hold = bigger window for conflicts.
-4. **Retry on deadlock.** A deadlock is a signal, not a crash — catch and retry with jitter. Dramatiq / Celery workers should already do this; HTTP handlers should do it once per request.
+4. **Retry on deadlock and serialization failure.** These are signals, not crashes — catch and retry the complete transaction with jitter. Dramatiq / Celery workers should already do this; HTTP handlers should do it once per request.
 
 ```python
 import asyncio
 import random
 from sqlalchemy.exc import DBAPIError
 
-# Match on the SQLSTATE code rather than a driver-specific exception class:
-# 40P01 is "deadlock_detected" for any Postgres driver (asyncpg, psycopg).
-async def with_deadlock_retry(fn, *, max_attempts=3):
+# Match on SQLSTATE rather than a driver-specific exception class:
+# 40P01 = deadlock_detected, 40001 = serialization_failure.
+RETRYABLE_TRANSACTION_SQLSTATES = {"40P01", "40001"}
+
+
+async def with_transaction_retry(fn, *, max_attempts=3):
     for attempt in range(max_attempts):
         try:
             return await fn()
         except DBAPIError as e:
             sqlstate = getattr(e.orig, "sqlstate", None) or getattr(e.orig, "pgcode", None)
-            if sqlstate == "40P01" and attempt < max_attempts - 1:
+            if sqlstate in RETRYABLE_TRANSACTION_SQLSTATES and attempt < max_attempts - 1:
                 await asyncio.sleep(0.05 * (2 ** attempt) * random.uniform(0.5, 1.5))
                 continue
             raise
 ```
+
+`40001` (`serialization_failure`) is most common at `REPEATABLE READ` or `SERIALIZABLE`, but it can also appear when the database prevents anomalies that your transaction shape made possible. Retry the **whole transaction**, including the read/decision logic that chose what to write. Retrying only the final SQL statement can repeat the stale decision and fail again.
 
 **Diagnosing in production:** when deadlocks show up, grep logs for the full Postgres error — it prints both sides of the conflict. Cross-reference with `pg_locks` and `pg_stat_activity`:
 

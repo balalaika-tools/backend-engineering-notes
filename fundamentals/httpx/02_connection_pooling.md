@@ -186,7 +186,7 @@ async def call_api2(path: str):
         return await client.get(f"https://api2.example.com{path}")
 ```
 
-The semaphore does **not** replace the HTTPX pool — it sits in front of it and ensures no single API's slowness can consume all 100 pool slots. Set each semaphore to your target per-API concurrency (informed by the API's rate limit; see `Safe_and_Scalable_API_calls/01_core_concepts.md` for the `rate × call_timeout` bound).
+The semaphore does **not** replace the HTTPX pool — it sits in front of it and ensures no single API's slowness can consume all 100 pool slots. Set each semaphore to your target per-API concurrency (informed by the API's rate limit; see `safe_and_scalable_api_calls/01_core_concepts.md` for the `rate × call_timeout` bound).
 
 ---
 

@@ -16,7 +16,7 @@
 | [core_concepts/](core_concepts/README.md) | Python primitives — decorators, exceptions, logging, configuration |
 | [concurrency/](concurrency/README.md) | Threads, processes, async/await, the GIL, event loops, contextvars, production patterns |
 | [httpx/](httpx/README.md) | HTTP client internals — pooling, timeouts, streaming |
-| [fastapi/](fastapi/README.md) | Framework patterns, DI, Pydantic, auth, middleware, WebSockets, streaming |
+| [fastapi/](fastapi/README.md) | Framework patterns, DI, Pydantic, auth, middleware, WebSockets, streaming, API design |
 | [database/](database/README.md) | PostgreSQL, Python drivers, SQLAlchemy ORM, async patterns, connection pooling |
 | [auth/](auth/README.md) | JWT, OAuth 2.0, AWS Cognito |
 
@@ -38,10 +38,11 @@
 2. [fastapi/04_authentication.md](fastapi/04_authentication.md) — JWT, OAuth2
 3. [fastapi/05_middleware.md](fastapi/05_middleware.md) — request ID, CORS, timing
 4. [fastapi/07_error_handling.md](fastapi/07_error_handling.md) — consistent error shapes
-5. [core_concepts/structlog_guide.md](core_concepts/structlog_guide.md) — structured logging
-6. [concurrency/async/03_contextvars.md](concurrency/async/03_contextvars.md) — request-scoped state
+5. [fastapi/10_api_design.md](fastapi/10_api_design.md) — resources, pagination, versioning
+6. [core_concepts/structlog_guide.md](core_concepts/structlog_guide.md) — structured logging
+7. [concurrency/async/03_contextvars.md](concurrency/async/03_contextvars.md) — request-scoped state
 
 ### Calling External APIs / LLMs
 
 1. [httpx/](httpx/README.md) — understand the HTTP client
-2. [fastapi/Safe_and_Scalable_API_calls/](fastapi/Safe_and_Scalable_API_calls/README.md) — production patterns
+2. [fastapi/safe_and_scalable_api_calls/](fastapi/safe_and_scalable_api_calls/README.md) — production patterns

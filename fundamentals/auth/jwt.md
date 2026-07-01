@@ -400,6 +400,73 @@ async def get_me(claims: dict = Depends(get_current_user)):
 
 ---
 
+## Revocation and Refresh Token Rotation
+
+JWT access tokens are intentionally hard to revoke: if the signature, `iss`, `aud`, and `exp` are valid, the API can accept the token without calling the auth server. That statelessness is the feature and the tradeoff.
+
+The usual production pattern, aligned with [RFC 9700 OAuth 2.0 Security BCP](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2):
+
+1. Keep access tokens short-lived: 5-30 minutes.
+2. Issue refresh tokens as long-lived, server-tracked credentials.
+3. Store only a hash of the refresh token.
+4. Rotate the refresh token on every refresh.
+5. If an old refresh token is reused, revoke the whole token family.
+
+Why the family? Reuse means either the legitimate client retried with an old token or an attacker has a stolen token. The server cannot reliably know which one. Revoking the family stops the replay and forces a fresh login.
+
+```python
+import hashlib
+import secrets
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+
+
+def new_refresh_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def refresh_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+@dataclass
+class RefreshTokenRecord:
+    token_hash: str
+    user_id: str
+    family_id: str
+    expires_at: datetime
+    used_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+async def rotate_refresh_token(raw_token: str) -> str:
+    token_hash = refresh_token_hash(raw_token)
+    record = await refresh_tokens.get_by_hash(token_hash)
+
+    if record is None or record.revoked_at or record.expires_at <= datetime.now(timezone.utc):
+        raise InvalidToken()
+
+    if record.used_at is not None:
+        # Reuse detection: assume the family is compromised.
+        await refresh_tokens.revoke_family(record.family_id)
+        raise InvalidToken()
+
+    new_raw = new_refresh_token()
+    new_record = RefreshTokenRecord(
+        token_hash=refresh_token_hash(new_raw),
+        user_id=record.user_id,
+        family_id=record.family_id,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    await refresh_tokens.mark_used_and_insert(record.token_hash, new_record)
+    return new_raw
+```
+
+This is the generic version of what managed IdPs call refresh-token rotation. If you use Cognito, Auth0, Okta, or another provider, prefer the provider's built-in rotation/revocation features and make your API validate the resulting access tokens.
+
+---
+
 ## Common Mistakes
 
 | Mistake | Problem | Fix |

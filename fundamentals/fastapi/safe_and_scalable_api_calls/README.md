@@ -30,7 +30,7 @@ The only hard concurrency limit in an external API system is imposed by the **HT
 | [03](03_call_patterns.md) | Call Patterns | Gold standard pattern, retry logic, exception handling |
 | [04](04_kubernetes.md) | Kubernetes | Multi-pod concerns, local vs global limits |
 | [05](05_production_architecture.md) | Production Architecture | Complete stack, execution order, deployment |
-| [06](06_advanced_patterns.md) | Advanced Patterns | Circuit breakers, priority queues, load shedding |
+| [06](06_advanced_patterns.md) | Advanced Patterns | Circuit breakers, bulkheads, hedging, priority queues, load shedding |
 | [07](07_streaming_patterns.md) | Streaming Patterns | SSE, streaming timeouts, semaphore duration |
 | [08](08_streaming_advanced.md) | Streaming Advanced | Multi-stream, aggregation, circuit breakers for streaming |
 | [09](09_distributed_admission_control.md) | Distributed Admission Control | Redis-centric admission, key taxonomy, atomic Lua, retries & quota accounting |
@@ -141,7 +141,7 @@ async def call_api(payload: dict):
 ### For Advanced Systems
 
 1. Review Parts 1-5
-2. Read [Advanced Patterns](06_advanced_patterns.md) — circuit breakers, etc.
+2. Read [Advanced Patterns](06_advanced_patterns.md) — circuit breakers, bulkheads, hedging, priority queues
 3. Read [Idempotency Keys](11_idempotency.md) — make the aggressive retries from Part 3 safe for non-GET endpoints (double-charge protection)
 
 ### For Distributed / Multi-Pod Systems

@@ -23,24 +23,25 @@
 | [07](07_error_handling.md) | Error Responses | Exception hierarchy, global handlers, consistent shapes |
 | [08](08_streaming.md) | Streaming | StreamingResponse, SSE, file downloads, backpressure |
 | [09](09_background_tasks_and_routers.md) | BackgroundTasks & APIRouter | Fire-and-forget after response, app structure, OpenAPI customization |
+| [10](10_api_design.md) | API Design Conventions | REST shape, methods, pagination, versioning, OpenAPI hygiene |
 
 ### External API Calls
 
-- **[Safe and Scalable API Calls](Safe_and_Scalable_API_calls/README.md)** — Production guide for calling LLMs and external services
+- **[Safe and Scalable API Calls](safe_and_scalable_api_calls/README.md)** — Production guide for calling LLMs and external services
 
   | Part | Topic | Description |
   |------|-------|-------------|
-  | [01](Safe_and_Scalable_API_calls/01_core_concepts.md) | Core Concepts | Mental model, the real concurrency limit |
-  | [02](Safe_and_Scalable_API_calls/02_concurrency_and_timeouts.md) | Concurrency & Timeouts | Timeout layers, asyncio vs httpx |
-  | [03](Safe_and_Scalable_API_calls/03_call_patterns.md) | Call Patterns | Gold standard pattern, retry logic |
-  | [04](Safe_and_Scalable_API_calls/04_kubernetes.md) | Kubernetes | Multi-pod concerns, local vs global |
-  | [05](Safe_and_Scalable_API_calls/05_production_architecture.md) | Production Architecture | Complete stack, execution order |
-  | [06](Safe_and_Scalable_API_calls/06_advanced_patterns.md) | Advanced Patterns | Circuit breakers, priority queues |
-  | [07](Safe_and_Scalable_API_calls/07_streaming_patterns.md) | Streaming Patterns | SSE, streaming timeouts |
-  | [08](Safe_and_Scalable_API_calls/08_streaming_advanced.md) | Streaming Advanced | Multi-stream, aggregation |
-  | [09](Safe_and_Scalable_API_calls/09_distributed_admission_control.md) | Distributed Admission Control | Redis-centric admission, atomic Lua, retries & quota accounting |
-  | [10](Safe_and_Scalable_API_calls/10_llm_token_economics.md) | LLM Token Economics | Reserve → Retry → Reconcile, cost observability, retry budgets |
-  | [11](Safe_and_Scalable_API_calls/11_idempotency.md) | Idempotency Keys | Safe POST retries, dedup state machine, Postgres + Redis backends |
+  | [01](safe_and_scalable_api_calls/01_core_concepts.md) | Core Concepts | Mental model, the real concurrency limit |
+  | [02](safe_and_scalable_api_calls/02_concurrency_and_timeouts.md) | Concurrency & Timeouts | Timeout layers, asyncio vs httpx |
+  | [03](safe_and_scalable_api_calls/03_call_patterns.md) | Call Patterns | Gold standard pattern, retry logic |
+  | [04](safe_and_scalable_api_calls/04_kubernetes.md) | Kubernetes | Multi-pod concerns, local vs global |
+  | [05](safe_and_scalable_api_calls/05_production_architecture.md) | Production Architecture | Complete stack, execution order |
+  | [06](safe_and_scalable_api_calls/06_advanced_patterns.md) | Advanced Patterns | Circuit breakers, bulkheads, hedging, priority queues |
+  | [07](safe_and_scalable_api_calls/07_streaming_patterns.md) | Streaming Patterns | SSE, streaming timeouts |
+  | [08](safe_and_scalable_api_calls/08_streaming_advanced.md) | Streaming Advanced | Multi-stream, aggregation |
+  | [09](safe_and_scalable_api_calls/09_distributed_admission_control.md) | Distributed Admission Control | Redis-centric admission, atomic Lua, retries & quota accounting |
+  | [10](safe_and_scalable_api_calls/10_llm_token_economics.md) | LLM Token Economics | Reserve → Retry → Reconcile, cost observability, retry budgets |
+  | [11](safe_and_scalable_api_calls/11_idempotency.md) | Idempotency Keys | Safe POST retries, dedup state machine, Postgres + Redis backends |
 
 ---
 
@@ -91,4 +92,4 @@ API Gateway → ASGI Server → FastAPI → HTTP Client → Vendor
 ## Reading Path
 
 1. **First**: [HTTPX Guide](../httpx/README.md) — understand the HTTP client
-2. **Then**: [Safe API Calls](Safe_and_Scalable_API_calls/README.md) — apply to production
+2. **Then**: [Safe API Calls](safe_and_scalable_api_calls/README.md) — apply to production

@@ -15,6 +15,7 @@ A unit test exercises one function or class with its dependencies faked out. It 
 | Service methods | Core logic lives here |
 | Parsers / serializers | Edge cases dominate |
 | Domain models | Invariants matter |
+| Prompt builders | LLM behavior is fuzzy, but the prompt you send is deterministic |
 
 What is **not** worth a unit test at this level:
 
@@ -335,3 +336,4 @@ If a "unit" test is slow, flaky, or order-dependent, it is mislabelled. Move it 
 ## Next
 
 - [04 — Endpoint Testing](04_endpoint_testing.md) — climb one level up the pyramid to HTTP-level tests.
+- [13 — Testing LLM Code](13_testing_llm_code.md) — apply the same unit-test discipline to prompts, adapters, schemas, and agents.

@@ -13,7 +13,7 @@
 
 | Section | Description |
 |---------|-------------|
-| [testing/](testing/README.md) | pytest, AsyncClient, dependency overrides, fixtures, mocking |
+| [testing/](testing/README.md) | pytest, AsyncClient, dependency overrides, fixtures, mocking, LLM evals |
 | [deployment/](deployment/README.md) | Docker, multi-stage builds, Uvicorn, Gunicorn, health checks, graceful shutdown |
 
 ---

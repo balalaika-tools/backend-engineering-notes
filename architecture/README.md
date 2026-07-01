@@ -14,13 +14,12 @@ These guides assume familiarity with the fundamentals. They show how the pieces 
 
 | Topic | Description |
 |-------|-------------|
-| [Long-Running Tasks](long_running_tasks/README.md) | Handling requests that take seconds to hours: orchestration, worker patterns, client delivery, infrastructure |
+| [Long-Running Tasks](long_running_tasks/README.md) | Handling requests that take seconds to hours: orchestration, worker patterns, client delivery, infrastructure, sagas/outbox |
 
 <!-- Future topics:
 - Event-Driven Architecture — decoupling services with events, event sourcing, event buses
 - CQRS — separating read and write models for scalability
-- Saga Pattern — managing distributed transactions across services
-- Circuit Breaker & Resilience — handling cascading failures in distributed systems
+- Service-Level Resilience — service mesh, regional failover, cells, and blast-radius control
 -->
 
 ---

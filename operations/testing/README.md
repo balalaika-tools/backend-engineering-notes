@@ -37,6 +37,7 @@
 | [10](10_test_patterns.md) | Test Patterns | Happy path, errors, edge cases, `parametrize`, snapshot testing |
 | [11](11_coverage_and_ci.md) | Coverage & CI | `pytest-cov`, branch coverage, `pytest-xdist`, GitHub Actions |
 | [12](12_common_mistakes.md) | Common Mistakes | The recurring pitfalls every pytest project hits |
+| [13](13_testing_llm_code.md) | Testing LLM Code | Prompt builders, model adapters, schemas, agent tools, evals |
 
 ---
 
@@ -58,6 +59,13 @@
 4. [08 — Database Testing](08_database_testing.md) — real Postgres, rolled back per test
 5. [09 — Mocking External Services](09_mocking_external.md) — when the thing you call is not a DB
 6. [10 — Test Patterns](10_test_patterns.md) — parametrize, snapshots, realistic examples
+
+### Testing LLM / Agent Features
+
+1. [03 — Unit Testing](03_unit_testing.md) — pure prompt builders and service logic
+2. [09 — Mocking External Services](09_mocking_external.md) — provider adapters and network boundaries
+3. [13 — Testing LLM Code](13_testing_llm_code.md) — structured outputs, agent tools, and evals
+4. [11 — Coverage & CI](11_coverage_and_ci.md) — keep live evals out of the fast suite
 
 ### Setting Up CI From Scratch
 
@@ -107,6 +115,7 @@ If the app depends on startup/shutdown lifespan work, wrap the async client with
 - **Patch where imported, not where defined.** See [03](03_unit_testing.md#patch-get-the-target-right).
 - **Prefer real DB tests over mocked queries.** See [08](08_database_testing.md).
 - **Mock at the edge, not inside.** See [09](09_mocking_external.md).
+- **For LLMs, assert contracts instead of prose.** See [13](13_testing_llm_code.md).
 - **Coverage is a proxy, not a target.** See [11](11_coverage_and_ci.md).
 
 ---

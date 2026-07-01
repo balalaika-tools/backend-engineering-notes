@@ -105,22 +105,23 @@ python-backend-notes/
 | [07 — Error Responses](fundamentals/fastapi/07_error_handling.md) | Exception hierarchy, global handlers, consistent error shapes |
 | [08 — Streaming](fundamentals/fastapi/08_streaming.md) | StreamingResponse, SSE, file downloads, backpressure |
 | [09 — BackgroundTasks & APIRouter](fundamentals/fastapi/09_background_tasks_and_routers.md) | Fire-and-forget, app structure, OpenAPI customization |
+| [10 — API Design Conventions](fundamentals/fastapi/10_api_design.md) | REST shape, methods, pagination, versioning, OpenAPI hygiene |
 
-#### Safe & Scalable API Calls — [full README](fundamentals/fastapi/Safe_and_Scalable_API_calls/README.md)
+#### Safe & Scalable API Calls — [full README](fundamentals/fastapi/safe_and_scalable_api_calls/README.md)
 
 | Guide | Description |
 |-------|-------------|
-| [01 — Core Concepts](fundamentals/fastapi/Safe_and_Scalable_API_calls/01_core_concepts.md) | Mental model, the real concurrency limit |
-| [02 — Concurrency & Timeouts](fundamentals/fastapi/Safe_and_Scalable_API_calls/02_concurrency_and_timeouts.md) | Timeout layers, asyncio vs httpx |
-| [03 — Call Patterns](fundamentals/fastapi/Safe_and_Scalable_API_calls/03_call_patterns.md) | Gold standard pattern, retry logic |
-| [04 — Kubernetes](fundamentals/fastapi/Safe_and_Scalable_API_calls/04_kubernetes.md) | Multi-pod concerns, local vs global |
-| [05 — Production Architecture](fundamentals/fastapi/Safe_and_Scalable_API_calls/05_production_architecture.md) | Complete stack, execution order |
-| [06 — Advanced Patterns](fundamentals/fastapi/Safe_and_Scalable_API_calls/06_advanced_patterns.md) | Circuit breakers, priority queues |
-| [07 — Streaming Patterns](fundamentals/fastapi/Safe_and_Scalable_API_calls/07_streaming_patterns.md) | SSE, streaming timeouts |
-| [08 — Streaming Advanced](fundamentals/fastapi/Safe_and_Scalable_API_calls/08_streaming_advanced.md) | Multi-stream, aggregation |
-| [09 — Distributed Admission Control](fundamentals/fastapi/Safe_and_Scalable_API_calls/09_distributed_admission_control.md) | Cross-pod concurrency limits, Redis-backed atomic limiters |
-| [10 — LLM Token Economics](fundamentals/fastapi/Safe_and_Scalable_API_calls/10_llm_token_economics.md) | Per-tenant budgets, token accounting, cost observability, retry budgets |
-| [11 — Idempotency Keys](fundamentals/fastapi/Safe_and_Scalable_API_calls/11_idempotency.md) | Safe POST retries, dedup state machine, Postgres + Redis implementations |
+| [01 — Core Concepts](fundamentals/fastapi/safe_and_scalable_api_calls/01_core_concepts.md) | Mental model, the real concurrency limit |
+| [02 — Concurrency & Timeouts](fundamentals/fastapi/safe_and_scalable_api_calls/02_concurrency_and_timeouts.md) | Timeout layers, asyncio vs httpx |
+| [03 — Call Patterns](fundamentals/fastapi/safe_and_scalable_api_calls/03_call_patterns.md) | Gold standard pattern, retry logic |
+| [04 — Kubernetes](fundamentals/fastapi/safe_and_scalable_api_calls/04_kubernetes.md) | Multi-pod concerns, local vs global |
+| [05 — Production Architecture](fundamentals/fastapi/safe_and_scalable_api_calls/05_production_architecture.md) | Complete stack, execution order |
+| [06 — Advanced Patterns](fundamentals/fastapi/safe_and_scalable_api_calls/06_advanced_patterns.md) | Circuit breakers, bulkheads, hedging, priority queues |
+| [07 — Streaming Patterns](fundamentals/fastapi/safe_and_scalable_api_calls/07_streaming_patterns.md) | SSE, streaming timeouts |
+| [08 — Streaming Advanced](fundamentals/fastapi/safe_and_scalable_api_calls/08_streaming_advanced.md) | Multi-stream, aggregation |
+| [09 — Distributed Admission Control](fundamentals/fastapi/safe_and_scalable_api_calls/09_distributed_admission_control.md) | Cross-pod concurrency limits, Redis-backed atomic limiters |
+| [10 — LLM Token Economics](fundamentals/fastapi/safe_and_scalable_api_calls/10_llm_token_economics.md) | Per-tenant budgets, token accounting, cost observability, retry budgets |
+| [11 — Idempotency Keys](fundamentals/fastapi/safe_and_scalable_api_calls/11_idempotency.md) | Safe POST retries, dedup state machine, Postgres + Redis implementations |
 
 #### Database — [full README](fundamentals/database/README.md)
 
@@ -193,7 +194,7 @@ python-backend-notes/
 
 | Guide | Description |
 |-------|-------------|
-| [Long-Running Tasks](architecture/long_running_tasks/README.md) | Orchestration, worker patterns, client delivery, infrastructure |
+| [Long-Running Tasks](architecture/long_running_tasks/README.md) | Orchestration, worker patterns, client delivery, infrastructure, sagas/outbox |
 
 ---
 
@@ -204,7 +205,7 @@ python-backend-notes/
 
 | Guide | Description |
 |-------|-------------|
-| [FastAPI Testing](operations/testing/README.md) | 12-part guide — pytest, unit testing, endpoint testing, dependency overrides, fixtures, DB & mocking, coverage & CI |
+| [FastAPI Testing](operations/testing/README.md) | 13-part guide — pytest, unit testing, endpoint testing, dependency overrides, fixtures, DB & mocking, LLM testing, coverage & CI |
 | [Docker & Deployment](operations/deployment/docker_and_deployment.md) | Multi-stage builds, Uvicorn, Gunicorn, health checks, graceful shutdown |
 
 ---
@@ -229,20 +230,22 @@ python-backend-notes/
 2. [Authentication](fundamentals/fastapi/04_authentication.md) — JWT, OAuth2
 3. [Middleware](fundamentals/fastapi/05_middleware.md) — request ID, timing, CORS
 4. [Error Handling](fundamentals/fastapi/07_error_handling.md) — consistent error responses
-5. [Structured Logging](fundamentals/core_concepts/structlog_guide.md) — structlog
-6. [ContextVars](fundamentals/concurrency/async/03_contextvars.md) — request-scoped state propagation
-7. [Docker](operations/deployment/docker_and_deployment.md) — containerization
+5. [API Design](fundamentals/fastapi/10_api_design.md) — resources, pagination, versioning
+6. [Structured Logging](fundamentals/core_concepts/structlog_guide.md) — structlog
+7. [ContextVars](fundamentals/concurrency/async/03_contextvars.md) — request-scoped state propagation
+8. [Docker](operations/deployment/docker_and_deployment.md) — containerization
 
 ### Calling External APIs / LLMs
 
 1. [HTTPX Guide](fundamentals/httpx/README.md) — understand the HTTP client
-2. [Safe API Calls](fundamentals/fastapi/Safe_and_Scalable_API_calls/README.md) — production patterns
+2. [Safe API Calls](fundamentals/fastapi/safe_and_scalable_api_calls/README.md) — production patterns
+3. [Testing LLM Code](operations/testing/13_testing_llm_code.md) — prompt builders, adapters, schemas, evals
 
 ### Background Work & Architecture
 
 1. [Redis](infrastructure/redis/README.md) — data structures, caching, pub/sub
 2. [Background Work](background_work/README.md) — Dramatiq, APScheduler, BackgroundTasks
-3. [Long-Running Tasks](architecture/long_running_tasks/README.md) — orchestration, workers, delivery patterns
+3. [Long-Running Tasks](architecture/long_running_tasks/README.md) — orchestration, workers, delivery patterns, sagas/outbox
 
 ---
 

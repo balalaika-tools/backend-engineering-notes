@@ -234,6 +234,68 @@ def refresh_access_token(refresh_token: str):
 | **Access token** | 15-30 minutes | Memory / JS variable | Authorize API requests |
 | **Refresh token** | 7-30 days | HttpOnly cookie / secure storage | Get new access tokens |
 
+### Refresh Token Rotation
+
+The simple example above accepts the same refresh token until it expires. That is easy to teach but too weak for production. [RFC 9700 OAuth 2.0 Security BCP](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2) expects public clients to use sender-constrained refresh tokens or refresh-token rotation. For most FastAPI apps, rotation is the practical pattern.
+
+On every refresh:
+
+1. Look up the presented refresh token by hash.
+2. Reject it if expired, revoked, or already used.
+3. Mark it used.
+4. Issue a new refresh token in the same family.
+5. If an already-used token appears again, revoke the family and force re-login.
+
+```python
+import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
+
+
+def make_refresh_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+@app.post("/auth/refresh")
+async def rotate_refresh(refresh_token: str):
+    token_hash = hash_refresh_token(refresh_token)
+    record = await refresh_token_repo.get(token_hash)
+
+    if record is None or record.revoked_at or record.expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    if record.used_at is not None:
+        await refresh_token_repo.revoke_family(record.family_id)
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    new_refresh = make_refresh_token()
+    await refresh_token_repo.rotate(
+        old_hash=token_hash,
+        new_hash=hash_refresh_token(new_refresh),
+        family_id=record.family_id,
+        user_id=record.user_id,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    new_access = create_access_token(data={"sub": record.user_id})
+    return {
+        "access_token": new_access,
+        "refresh_token": new_refresh,
+        "token_type": "bearer",
+    }
+```
+
+Important details:
+
+- Store only a hash of the refresh token, never the raw token.
+- Put refresh tokens in an HttpOnly, Secure, SameSite cookie for browser apps, or platform secure storage for native/mobile apps.
+- Rotate in a database transaction so the old token cannot be used twice during a race.
+- Access tokens can stay stateless and short-lived; refresh tokens carry the revocation state.
+
 ---
 
 ## 4. OAuth2PasswordBearer -- FastAPI's Built-In Flow
@@ -983,7 +1045,7 @@ Auth endpoints (login, register, password reset) should **always** be rate-limit
 | **Rate limiting** | Protect login and registration endpoints |
 | **Dependencies** | Build auth as composable dependency chains |
 | **Headers** | Add security headers via middleware |
-| **Refresh tokens** | Store securely, distinguish from access tokens |
+| **Refresh tokens** | Store securely, distinguish from access tokens, rotate and detect reuse |
 
 ---
 

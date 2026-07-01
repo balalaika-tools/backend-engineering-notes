@@ -15,6 +15,7 @@
 |---------|-------------|
 | [redis/](redis/README.md) | Data structures, pub/sub, streams, caching patterns, Python clients |
 | [observability/](observability/README.md) | OpenTelemetry primer, Python SDK setup, metrics export methods, OTel Collector config |
+| [Messaging options](../architecture/long_running_tasks/04_infrastructure.md#2-rabbitmq-amqp) | RabbitMQ, SQS, Kafka, and when Redis is not enough |
 
 ---
 

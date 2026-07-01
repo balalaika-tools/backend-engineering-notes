@@ -37,7 +37,7 @@ Redis is an **in-memory data structure store** that serves data over TCP. It is 
 
 **Performance / production concerns** → Check eviction policies in `03`, connection pooling in `04`.
 
-**Rate limiting / quota enforcement** → Read `05` for the four canonical algorithms. The application-layer architecture that consumes them lives in [Safe and Scalable API Calls / 09](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/09_distributed_admission_control.md).
+**Rate limiting / quota enforcement** → Read `05` for the four canonical algorithms. The application-layer architecture that consumes them lives in [Safe and Scalable API Calls / 09](../../fundamentals/fastapi/safe_and_scalable_api_calls/09_distributed_admission_control.md).
 
 **Running Redis in production (HA, persistence, failover)** → Read `06` before committing to a deployment topology.
 

@@ -740,7 +740,7 @@ def charge_customer(charge_id: str, amount_cents: int):
 
 **2. Redis SET NX with a short TTL.** Faster but weaker — on Redis failover the dedup state can be lost. Acceptable when the cost of occasional double-execution is low.
 
-**3. Forward an idempotency key to upstream services.** Even if your own dedup fails, the upstream (Stripe, payment processor) can reject duplicates. See [`Safe_and_Scalable_API_calls/11_idempotency.md`](../fundamentals/fastapi/Safe_and_Scalable_API_calls/11_idempotency.md).
+**3. Forward an idempotency key to upstream services.** Even if your own dedup fails, the upstream (Stripe, payment processor) can reject duplicates. See [`safe_and_scalable_api_calls/11_idempotency.md`](../fundamentals/fastapi/safe_and_scalable_api_calls/11_idempotency.md).
 
 ### Dead Letter Queues (DLQ)
 

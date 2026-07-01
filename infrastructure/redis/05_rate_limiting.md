@@ -1,6 +1,6 @@
 # Rate Limiting Algorithms
 
-> **Why this lives here**: Rate limiting in a distributed system is fundamentally a Redis problem. Each algorithm is just a pattern of `INCR`, `EXPIRE`, or sorted-set commands — Redis provides the atomic primitives, you choose the key layout. This file covers the four canonical algorithms you'll actually use in production. The application-layer architecture that consumes these primitives lives in [Safe and Scalable API Calls / 09 — Distributed Admission Control](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/09_distributed_admission_control.md).
+> **Why this lives here**: Rate limiting in a distributed system is fundamentally a Redis problem. Each algorithm is just a pattern of `INCR`, `EXPIRE`, or sorted-set commands — Redis provides the atomic primitives, you choose the key layout. This file covers the four canonical algorithms you'll actually use in production. The application-layer architecture that consumes these primitives lives in [Safe and Scalable API Calls / 09 — Distributed Admission Control](../../fundamentals/fastapi/safe_and_scalable_api_calls/09_distributed_admission_control.md).
 
 ---
 
@@ -491,7 +491,7 @@ end
 return {1, "ok"}
 ```
 
-This is the **admission controller** — application of these algorithms in the FastAPI layer. Full discussion with FastAPI integration in [09 — Distributed Admission Control](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/09_distributed_admission_control.md).
+This is the **admission controller** — application of these algorithms in the FastAPI layer. Full discussion with FastAPI integration in [09 — Distributed Admission Control](../../fundamentals/fastapi/safe_and_scalable_api_calls/09_distributed_admission_control.md).
 
 ---
 
@@ -531,5 +531,5 @@ Set TTL on **first INCR** (when the value equals 1) — not every request. Other
 
 ## What's Next
 
-- For the architecture that uses these algorithms in a FastAPI service, see [Safe and Scalable API Calls / 09 — Distributed Admission Control](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/09_distributed_admission_control.md).
-- For the LLM-specific reservation/reconciliation pattern (token quotas with retries), see [Safe and Scalable API Calls / 10 — LLM Token Economics](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/10_llm_token_economics.md).
+- For the architecture that uses these algorithms in a FastAPI service, see [Safe and Scalable API Calls / 09 — Distributed Admission Control](../../fundamentals/fastapi/safe_and_scalable_api_calls/09_distributed_admission_control.md).
+- For the LLM-specific reservation/reconciliation pattern (token quotas with retries), see [Safe and Scalable API Calls / 10 — LLM Token Economics](../../fundamentals/fastapi/safe_and_scalable_api_calls/10_llm_token_economics.md).

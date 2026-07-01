@@ -1319,4 +1319,4 @@ KEDA can scale to zero, which HPA cannot — useful for low-traffic workers. Pai
 ## See also
 
 - [../testing/08_database_testing.md](../testing/08_database_testing.md) — integration tests with real Postgres via testcontainers.
-- [../../fundamentals/fastapi/Safe_and_Scalable_API_calls/04_kubernetes.md](../../fundamentals/fastapi/Safe_and_Scalable_API_calls/04_kubernetes.md) — per-pod vs cluster-wide admission control.
+- [../../fundamentals/fastapi/safe_and_scalable_api_calls/04_kubernetes.md](../../fundamentals/fastapi/safe_and_scalable_api_calls/04_kubernetes.md) — per-pod vs cluster-wide admission control.

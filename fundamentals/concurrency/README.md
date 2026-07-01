@@ -97,5 +97,5 @@ py-spy dump --pid <PID>
 ## Next
 
 - [HTTPX Guide](../httpx/README.md) - async HTTP in practice.
-- [Safe API Calls](../fastapi/Safe_and_Scalable_API_calls/README.md) - production concurrency around downstream APIs.
+- [Safe API Calls](../fastapi/safe_and_scalable_api_calls/README.md) - production concurrency around downstream APIs.
 - [Background Work](../../background_work/README.md) - durable work that should not live inside request handlers.
