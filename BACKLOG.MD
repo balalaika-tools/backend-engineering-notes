@@ -17,43 +17,13 @@ This file is intentionally a planning document, not a promise to build everythin
 
 ## Recommended Build Order
 
-1. `fundamentals/fastapi/11_api_security.md`
-2. `operations/deployment/02_ci_cd_and_releases.md`
-3. `infrastructure/messaging/`
-4. `infrastructure/observability/05_alerting_and_slos.md`
-5. `fundamentals/database/07_query_performance.md`
-6. `architecture/llm_systems/`
+1. `operations/deployment/02_ci_cd_and_releases.md`
+2. `infrastructure/messaging/`
+3. `infrastructure/observability/05_alerting_and_slos.md`
+4. `fundamentals/database/07_query_performance.md`
+5. `architecture/llm_systems/`
 
 ## P0 - Add Next
-
-### `fundamentals/fastapi/11_api_security.md`
-
-Status: Not started
-
-Why: The repo now covers authentication, JWTs, OAuth, CORS, and API design, but production API security is broader than "who is this user?" The missing layer is "what can this caller do, what can they abuse, and what should the system refuse by default?"
-
-Should cover:
-
-- Authentication vs authorization vs auditability.
-- Object-level authorization: owner checks, tenant checks, and IDOR/BOLA prevention.
-- Function-level authorization: admin routes, role checks, capability checks, and deny-by-default dependencies.
-- Object property authorization: avoiding over-posting, mass assignment, and accidental response leaks.
-- CORS, CSRF, cookies, bearer tokens, and browser trust boundaries.
-- Rate limits, quotas, cost controls, and business-flow abuse.
-- SSRF defenses for endpoints that fetch URLs or call webhooks.
-- Webhook verification: signatures, timestamps, replay windows, idempotency keys.
-- File upload safety: size limits, content-type distrust, scanning hooks, object storage, signed URLs.
-- Secrets handling: environment variables, secret managers, logging redaction, rotation.
-- Safe error responses: do not leak stack traces, SQL, token claims, or provider internals.
-- Third-party API consumption: validate upstream data like untrusted input.
-- Security observability: audit logs, sensitive events, anomaly signals, and alert examples.
-- A final FastAPI checklist for new endpoints.
-
-Best sources to align with:
-
-- OWASP API Security Top 10 2023: https://owasp.org/API-Security/editions/2023/en/0x11-t10/
-- NIST Secure Software Development Framework: https://csrc.nist.gov/Projects/ssdf
-- OAuth 2.0 Security Best Current Practice, RFC 9700: https://www.rfc-editor.org/rfc/rfc9700.html
 
 ### `operations/deployment/02_ci_cd_and_releases.md`
 

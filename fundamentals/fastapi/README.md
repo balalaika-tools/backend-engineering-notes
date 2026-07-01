@@ -24,6 +24,7 @@
 | [08](08_streaming.md) | Streaming | StreamingResponse, SSE, file downloads, backpressure |
 | [09](09_background_tasks_and_routers.md) | BackgroundTasks & APIRouter | Fire-and-forget after response, app structure, OpenAPI customization |
 | [10](10_api_design.md) | API Design Conventions | REST shape, methods, pagination, versioning, OpenAPI hygiene |
+| [11](11_api_security.md) | API Security | Object/function/property authorization, abuse controls, SSRF, webhooks, uploads, auditability |
 
 ### External API Calls
 
