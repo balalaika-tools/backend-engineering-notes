@@ -48,6 +48,8 @@
 
 ## Prerequisites
 
+**[API Communication Guides](../../apis/README.md)** — protocol-neutral foundations, style selection, REST, WebSockets, and webhooks
+
 **[HTTPX Guide](../httpx/README.md)** — connection pooling, timeouts, HTTP client internals (required before Safe API Calls)
 
 ---

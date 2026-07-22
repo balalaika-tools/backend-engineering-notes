@@ -2,6 +2,8 @@
 
 A complete guide to WebSockets in FastAPI — from mental model to production-ready patterns.
 
+For the protocol itself, application message contracts, reconnection, flow control, browser security, and distributed connection architecture, see the **[WebSocket Deep Dive](../../apis/websockets/README.md)**. This chapter focuses on FastAPI implementation patterns.
+
 > ⚠️ **`BaseHTTPMiddleware` does not run on WebSocket connections.** If you relied on `@app.middleware("http")` or any `BaseHTTPMiddleware` subclass for logging, request IDs, timing, or error normalization, none of that code executes for WebSocket endpoints — the connection uses the `"websocket"` ASGI scope, which `BaseHTTPMiddleware` explicitly skips. For cross-cutting logic that needs to apply to WebSockets too, write **pure ASGI middleware** (see [05_middleware.md §9 Custom Middleware Class (ASGI)](./05_middleware.md#9-custom-middleware-class-asgi) for the pattern), or put the logic inside a FastAPI dependency that each WebSocket endpoint uses.
 
 ---

@@ -26,6 +26,12 @@ python-backend-notes/
 │   ├── database/          PostgreSQL, SQLAlchemy, Alembic, async patterns
 │   └── auth/              JWT, OAuth 2.0, AWS Cognito
 │
+│ ── API COMMUNICATION ───────────────────────────────────
+├── apis/
+│   ├── restful/           REST constraints, HTTP semantics, security, evolution, operations
+│   ├── websockets/        Protocol, message contracts, reliability, security, and scaling
+│   └── webhooks/          Producer/consumer design, signatures, SSRF, retries, and replay
+│
 │ ── INFRASTRUCTURE ──────────────────────────────────────
 ├── infrastructure/
 │   └── redis/             Data structures, caching, pub/sub, Python clients
@@ -106,6 +112,7 @@ python-backend-notes/
 | [08 — Streaming](fundamentals/fastapi/08_streaming.md) | StreamingResponse, SSE, file downloads, backpressure |
 | [09 — BackgroundTasks & APIRouter](fundamentals/fastapi/09_background_tasks_and_routers.md) | Fire-and-forget, app structure, OpenAPI customization |
 | [10 — API Design Conventions](fundamentals/fastapi/10_api_design.md) | REST shape, methods, pagination, versioning, OpenAPI hygiene |
+| [11 — API Security](fundamentals/fastapi/11_api_security.md) | Object/function/property authorization, abuse controls, SSRF, webhooks, and auditability |
 
 #### Safe & Scalable API Calls — [full README](fundamentals/fastapi/safe_and_scalable_api_calls/README.md)
 
@@ -153,6 +160,27 @@ python-backend-notes/
 | [Cognito — User Pool](fundamentals/auth/cognito/user-pool.md) | Pool setup, auth flows, user management, Lambda triggers |
 | [Cognito — Tokens](fundamentals/auth/cognito/tokens.md) | IdToken vs AccessToken, Cognito claims, validation |
 | [Cognito — OAuth in Practice](fundamentals/auth/cognito/oauth-jwt-guide.md) | M2M, user auth, FastAPI integration, testing |
+
+---
+
+### API Communication — [full index](apis/README.md)
+
+[![HTTP](https://img.shields.io/badge/HTTP-RFC_9110-005C9C.svg)](https://www.rfc-editor.org/rfc/rfc9110)
+[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.x-6BA539.svg?logo=openapiinitiative&logoColor=white)](https://spec.openapis.org/oas/)
+[![GraphQL](https://img.shields.io/badge/GraphQL-Specification-E10098.svg?logo=graphql&logoColor=white)](https://spec.graphql.org/)
+[![gRPC](https://img.shields.io/badge/gRPC-Protocol-244C5A.svg)](https://grpc.io/)
+
+| Guide | Description |
+|-------|-------------|
+| [API Fundamentals](apis/01_api_fundamentals.md) | Contracts, vocabulary, interaction models, and distributed failure |
+| [API Styles and Selection](apis/02_api_styles_and_selection.md) | When to choose REST, SOAP, GraphQL, gRPC, WebSocket, or webhooks |
+| [API Contracts and Lifecycle](apis/03_api_contracts_and_lifecycle.md) | Schema design, compatibility, governance, documentation, and deprecation |
+| [SOAP Overview](apis/04_soap_overview.md) | Focused guide to envelopes, WSDL, XML Schema, faults, and WS-* |
+| [GraphQL Overview](apis/05_graphql_overview.md) | Focused guide to schemas, resolvers, query cost, security, and evolution |
+| [gRPC Overview](apis/06_grpc_overview.md) | Focused guide to Protobuf, RPC shapes, deadlines, status, and compatibility |
+| [RESTful APIs](apis/restful/README.md) | 10-part production guide to HTTP resource APIs |
+| [WebSockets](apis/websockets/README.md) | 6-part guide to persistent bidirectional application channels |
+| [Webhooks](apis/webhooks/README.md) | 6-part guide to secure, durable event delivery across systems |
 
 ---
 
@@ -220,33 +248,33 @@ python-backend-notes/
 1. [Core Concepts](fundamentals/core_concepts/README.md) — decorators, exceptions, logging, configuration
 2. [Concurrency](fundamentals/concurrency/README.md) — threads, processes, async, contextvars
 3. [HTTPX](fundamentals/httpx/README.md) — HTTP client internals
-4. [FastAPI 01-03](fundamentals/fastapi/README.md) — parameters, DI, Pydantic
-5. [Database](fundamentals/database/README.md) — SQL foundations -> drivers -> ORM -> async patterns
-6. [Testing](operations/testing/README.md) — pytest + FastAPI, unit -> endpoint -> coverage
+4. [API Fundamentals](apis/01_api_fundamentals.md) — contracts, interaction styles, and failure semantics
+5. [FastAPI 01-03](fundamentals/fastapi/README.md) — parameters, DI, Pydantic
+6. [Database](fundamentals/database/README.md) — SQL foundations -> drivers -> ORM -> async patterns
+7. [Testing](operations/testing/README.md) — pytest + FastAPI, unit -> endpoint -> coverage
 
 ### Building a Production API
 
-1. [Configuration](fundamentals/core_concepts/configuration.md) — settings management
-2. [Authentication](fundamentals/fastapi/04_authentication.md) — JWT, OAuth2
-3. [Middleware](fundamentals/fastapi/05_middleware.md) — request ID, timing, CORS
-4. [Error Handling](fundamentals/fastapi/07_error_handling.md) — consistent error responses
-5. [API Design](fundamentals/fastapi/10_api_design.md) — resources, pagination, versioning
-6. [Structured Logging](fundamentals/core_concepts/structlog_guide.md) — structlog
-7. [ContextVars](fundamentals/concurrency/async/03_contextvars.md) — request-scoped state propagation
-8. [Docker](operations/deployment/docker_and_deployment.md) — containerization
+1. [API Fundamentals and Selection](apis/README.md) — contracts and interaction choices
+2. [RESTful APIs](apis/restful/README.md) — HTTP semantics, resources, reliability, security, and operations
+3. [Configuration](fundamentals/core_concepts/configuration.md) — settings management
+4. [Authentication](fundamentals/fastapi/04_authentication.md) — JWT, OAuth2
+5. [Middleware](fundamentals/fastapi/05_middleware.md) — request ID, timing, CORS
+6. [Error Handling](fundamentals/fastapi/07_error_handling.md) — consistent error responses
+7. [API Design](fundamentals/fastapi/10_api_design.md) — FastAPI resource implementation
+8. [Structured Logging](fundamentals/core_concepts/structlog_guide.md) — structlog
+9. [Docker](operations/deployment/docker_and_deployment.md) — containerization
 
 ### Calling External APIs / LLMs
 
-1. [HTTPX Guide](fundamentals/httpx/README.md) — understand the HTTP client
-2. [Safe API Calls](fundamentals/fastapi/safe_and_scalable_api_calls/README.md) — production patterns
-3. [Testing LLM Code](operations/testing/13_testing_llm_code.md) — prompt builders, adapters, schemas, evals
+1. [API Styles and Selection](apis/02_api_styles_and_selection.md) — understand the integration boundary
+2. [HTTPX Guide](fundamentals/httpx/README.md) — understand the HTTP client
+3. [Safe API Calls](fundamentals/fastapi/safe_and_scalable_api_calls/README.md) — production patterns
+4. [Webhooks](apis/webhooks/README.md) — durable callbacks when a provider pushes events
+5. [Testing LLM Code](operations/testing/13_testing_llm_code.md) — prompt builders, adapters, schemas, evals
 
 ### Background Work & Architecture
 
 1. [Redis](infrastructure/redis/README.md) — data structures, caching, pub/sub
 2. [Background Work](background_work/README.md) — Dramatiq, APScheduler, BackgroundTasks
 3. [Long-Running Tasks](architecture/long_running_tasks/README.md) — orchestration, workers, delivery patterns, sagas/outbox
-
----
-
-*Last updated: June 2026*

@@ -2,6 +2,8 @@
 
 This guide explains **how HTTP requests work** and **how FastAPI maps request data into function arguments**.
 
+For protocol-neutral HTTP semantics, resource design, caching, compatibility, and operations, start with the **[RESTful API Deep Dive](../../apis/restful/README.md)**. This chapter focuses on FastAPI's parameter mapping.
+
 ---
 
 ## Part 0: Endpoint Structure & Conventions

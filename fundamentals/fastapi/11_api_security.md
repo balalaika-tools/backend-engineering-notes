@@ -2,6 +2,8 @@
 
 > **Purpose**: Build FastAPI endpoints that refuse the wrong caller, the wrong object, the wrong field, the wrong origin, the wrong cost, and the wrong evidence trail by default.
 
+For a framework-neutral threat model and review checklist, see **[REST API Security](../../apis/restful/08_security.md)**. For callback-specific signing and SSRF controls, see **[Webhook Signatures, Security, and SSRF](../../apis/webhooks/04_signatures_security_and_ssrf.md)**.
+
 Authentication answers "who is calling?" That is necessary, but it is not API security.
 
 Production API security is the set of decisions every endpoint makes after identity exists:

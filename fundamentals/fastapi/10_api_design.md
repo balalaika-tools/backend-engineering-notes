@@ -2,6 +2,8 @@
 
 > **Purpose**: Design HTTP APIs that are predictable for clients, boring to operate, and easy to evolve without breaking consumers.
 
+This is the FastAPI-oriented companion to the protocol-neutral **[RESTful API Deep Dive](../../apis/restful/README.md)**, which covers REST constraints, HTTP semantics, concurrency, caching, security, compatibility, and operations in depth.
+
 FastAPI makes it easy to expose routes. API design is the discipline of making those routes behave like a coherent product contract.
 
 The contract has three layers:
