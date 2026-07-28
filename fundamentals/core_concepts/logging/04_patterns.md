@@ -1,202 +1,332 @@
-# Logging Patterns
+# Logging Configuration Patterns
 
-## When to Use Which
+> **Who this is for**: Application and library authors choosing where logging is
+> configured, how records are routed, and how that configuration behaves under
+> frameworks, tests, multiple processes, and production collectors.
 
-| Pattern | Use when |
-|---------|----------|
-| Universal logger | Most projects — single audit/debug trail, easy to grep |
-| Per-subfolder logger | You want log separation (data vs model), or shipping a package |
-| Both | You want per-area files AND a global trail |
+The default for most applications is simple: configure handlers once at the
+entry point, create `getLogger(__name__)` loggers everywhere else, and let records
+propagate to root.
 
 ---
 
-## Universal Logging (Centralized)
+## 1. Choose the Smallest Pattern That Fits
 
-Configure logging **once** at startup. Every module uses `getLogger(__name__)` and records propagate up to root.
+| Situation | Recommended starting point |
+|-----------|----------------------------|
+| One-file script or CLI | `basicConfig()` in `main()` |
+| Multi-module service | One `dictConfig()` or owned setup function at startup |
+| FastAPI under Uvicorn | One coordinated config for app and server loggers |
+| Reusable library | No application config; module loggers plus `NullHandler` |
+| Containerized service | stdout/stderr, collected by the platform |
+| Dedicated audit stream | Named logger with an additional dedicated handler |
+| High-throughput async service | Queue between log calls and slow handlers |
 
-### Option A — `basicConfig` at entry point
+Do not create a per-directory logger factory merely because code is organized
+into directories. `getLogger(__name__)` already gives every package subtree a
+stable name that configuration can target.
 
-Simple. Use this for scripts and small projects.
+---
+
+## 2. Small Applications: `basicConfig()`
 
 ```python
-# main.py
+# app/main.py
 import logging
+import sys
 
-logging.basicConfig(
-    filename="all.log",
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
-```
-
-```python
-# any other module
-import logging
 logger = logging.getLogger(__name__)
 
-def do_something():
-    logger.info("Running task")
+
+def main() -> None:
+    logging.basicConfig(
+        stream=sys.stdout,
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    logger.info("service started")
+
+
+if __name__ == "__main__":
+    main()
 ```
 
-### Option B — `setup_logging()` utility (recommended for teams)
-
-More flexible: easy to add console + file together, update config in one place, avoid `basicConfig` idempotency issues.
+Imported modules only declare their logger:
 
 ```python
-# src/utils/logger.py
+# app/orders.py
 import logging
 
-def setup_logging():
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
-    ch = logging.StreamHandler()
-    ch.setFormatter(formatter)
-    root.addHandler(ch)
 
-    fh = logging.FileHandler("all.log")
-    fh.setFormatter(formatter)
-    root.addHandler(fh)
+def create_order(order_id: str) -> None:
+    logger.info("order created id=%s", order_id)
 ```
 
-```python
-# main.py
-from utils.logger import setup_logging
+Call `basicConfig()` before application logging begins. If root already has a
+handler, it does nothing unless `force=True`; this often explains why a notebook,
+test runner, or framework ignores a later `basicConfig()` call.
 
-setup_logging()  # call ONCE at startup
-```
+Use `force=True` only when this entry point intentionally owns and replaces all
+root handlers.
 
-### Option C — `dictConfig` (declarative)
+---
 
-For larger apps, prefer `logging.config.dictConfig`: the whole setup is one data structure you can load from YAML/JSON and keep per-environment.
+## 3. Services: Declarative `dictConfig()`
+
+`dictConfig()` makes names, destinations, thresholds, and propagation visible in
+one structure:
 
 ```python
 import logging.config
 
-logging.config.dictConfig({
-    "version": 1,                       # required, always 1
-    "disable_existing_loggers": False,  # keep loggers created at import time
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
     "formatters": {
-        "std": {"format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"},
+        "service": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
     },
     "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": "std"},
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": "INFO",
+            "formatter": "service",
+            "stream": "ext://sys.stdout",
+        },
     },
-    "root": {"level": "INFO", "handlers": ["console"]},
-})
+    "loggers": {
+        # Keep a noisy dependency useful without hiding its warnings/errors.
+        "httpcore": {
+            "level": "WARNING",
+            "handlers": [],
+            "propagate": True,
+        },
+    },
+    "root": {
+        "level": "INFO",
+        "handlers": ["console"],
+    },
+}
+
+
+def configure_logging() -> None:
+    logging.config.dictConfig(LOGGING)
 ```
 
-> Set `disable_existing_loggers: False`. The default is `True`, which **silences every logger already created** (e.g. module-level `getLogger(__name__)` from imports that ran before this call) — a classic "my logs vanished" bug.
+`version` is required and currently must be `1`.
+
+Set `disable_existing_loggers=False` unless intentionally disabling loggers
+created before configuration. The default is `True`, a frequent cause of
+third-party or import-time loggers disappearing.
+
+Call the function once from the process entry point. Worker processes each need
+their own logging setup after they start; handlers and listener threads are
+process-local resources.
+
+---
+
+## 4. Dedicated Streams: Configure the Subtree, Not Each File
+
+Suppose security audit records must go to `audit.log` while normal application
+records go to the console:
 
 ```python
-# any module
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "service": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "service",
+            "stream": "ext://sys.stdout",
+        },
+        "audit_file": {
+            "class": "logging.FileHandler",
+            "formatter": "service",
+            "filename": "audit.log",
+            "encoding": "utf-8",
+        },
+    },
+    "loggers": {
+        "myapp.audit": {
+            "level": "INFO",
+            "handlers": ["audit_file"],
+            "propagate": False,
+        },
+    },
+    "root": {
+        "level": "INFO",
+        "handlers": ["console"],
+    },
+}
+```
+
+Every module under `myapp.audit` still uses `getLogger(__name__)`. Propagation
+stops at the configured subtree, so audit records only reach the file.
+
+If audit records should reach both the file and root console, use
+`propagate=True`. That is intentional fan-out to two destinations, not an
+accidental duplicate. A duplicate occurs when overlapping handlers write the
+same record to the same destination.
+
+Before writing audit files, decide whether the application process is the right
+retention boundary. Security audit logs often need tamper resistance, controlled
+access, durable centralized storage, and retention policy beyond a local
+`FileHandler`.
+
+---
+
+## 5. Avoid Handler Factories Unless Runtime Composition Requires Them
+
+When dynamic setup is unavoidable, check direct handlers, not `hasHandlers()`:
+
+```python
 import logging
+
+
+def configure_audit_logger(handler: logging.Handler) -> logging.Logger:
+    logger = logging.getLogger("myapp.audit")
+    logger.setLevel(logging.INFO)
+
+    if not logger.handlers:
+        logger.addHandler(handler)
+
+    logger.propagate = False
+    return logger
+```
+
+`logger.hasHandlers()` searches parents. If root has a console handler, it
+returns `True` even when `logger.handlers` is empty and the dedicated audit
+handler was never installed.
+
+Factories also create ownership questions:
+
+- Who closes the handler?
+- Can two calls supply different handlers?
+- What happens after test reconfiguration?
+- Does a forked worker inherit an unsafe open file descriptor?
+
+Centralized declarative configuration avoids most of these ambiguities.
+
+---
+
+## 6. Frameworks and Servers Already Have Logging
+
+Uvicorn, Gunicorn, test runners, notebooks, and CLI frameworks may configure
+logging before application startup. Do not blindly call `basicConfig()` and
+assume it won.
+
+For a FastAPI deployment, decide explicitly:
+
+1. preserve the server's configuration and let application loggers propagate;
+2. supply Uvicorn a logging configuration that includes application and server
+   logger names; or
+3. intentionally replace the process-wide configuration before serving.
+
+Keep access logs, application logs, and error logs distinguishable by logger name
+or a structured field. Avoid attaching handlers to both `uvicorn` and its child
+`uvicorn.access` unless their propagation settings are designed together.
+
+When using multiple worker processes, each process writes independently. Local
+file rotation and in-process queues do not coordinate across workers. A platform
+collector or logging sidecar is usually the cleaner process boundary.
+
+---
+
+## 7. Libraries Emit Records but Never Own the Host
+
+A reusable package should:
+
+```python
+# reusable_package/client.py
+import logging
+
 logger = logging.getLogger(__name__)
-
-def do_stuff():
-    logger.info("Logging from %s", __name__)
 ```
+
+Optionally, its top-level package can install a `NullHandler`:
+
+```python
+# reusable_package/__init__.py
+import logging
+
+logging.getLogger(__name__).addHandler(logging.NullHandler())
+```
+
+It should not:
+
+- call `basicConfig()` or `dictConfig()`;
+- add a `StreamHandler` or `FileHandler` for the host;
+- set the root level;
+- clear existing handlers;
+- set `propagate=False` unless the package deliberately owns a complete route.
+
+Expose logger names and meaningful levels in documentation so the consuming
+application can tune noise.
 
 ---
 
-## Per-Subfolder Logging
+## 8. Testing Logging Behavior
 
-Each subfolder logs to its own file. Modules in the same folder share one logger.
-
-**Project structure:**
-
-```
-src/
-  data/
-    __init__.py
-    logger.py
-    load.py
-  model/
-    __init__.py
-    logger.py
-    train.py
-```
-
-**`src/data/logger.py`:**
+Test emitted semantics, not exact timestamps or a complete formatted line:
 
 ```python
 import logging
-import os
 
-LOG_FILE = os.path.join(os.path.dirname(__file__), "data.log")
 
-def get_data_logger() -> logging.Logger:
-    logger = logging.getLogger("data")
-    logger.setLevel(logging.INFO)
-    if not logger.hasHandlers():          # prevent duplicate handlers
-        fh = logging.FileHandler(LOG_FILE)
-        fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-        fh.setFormatter(fmt)
-        logger.addHandler(fh)
-        logger.propagate = False          # don't also emit from root
-    return logger
+def test_order_log_contains_identifier(caplog) -> None:
+    with caplog.at_level(logging.INFO, logger="app.orders"):
+        create_order("ord-1042")
+
+    matching = [
+        record
+        for record in caplog.records
+        if record.name == "app.orders" and record.getMessage() == (
+            "order created id=ord-1042"
+        )
+    ]
+    assert len(matching) == 1
 ```
 
-**In any `data` module, e.g. `load.py`:**
+For configuration tests, verify topology separately:
 
-```python
-from .logger import get_data_logger
+- expected handlers are attached once;
+- handler levels are correct;
+- dedicated subtrees have the intended `propagate` value;
+- repeated test setup does not accumulate handlers;
+- queue listeners stop and flush during teardown.
 
-logger = get_data_logger()
-
-def fetch():
-    logger.info("Fetching data...")
-```
-
-Repeat for `src/model/logger.py` (change logger name to `"model"` and filename to `"model.log"`).
+Avoid global logging reconfiguration in ordinary unit tests. Pytest's `caplog`
+works with records directly and keeps assertions focused on behavior.
 
 ---
 
-## Mixing Both: Universal + Per-Subfolder
+## 9. Production Checklist
 
-Set up root logging in `main.py` for a global trail, and add per-subfolder loggers on top.
+1. Configure once in each process entry point.
+2. Use `getLogger(__name__)` in every module.
+3. Keep root as the default handler route.
+4. Put destination thresholds on handlers.
+5. Use `propagate=False` only for a subtree that owns its full route.
+6. Keep `disable_existing_loggers=False` unless silence is intentional.
+7. Send container logs to platform-collected streams.
+8. Do not share standard rotating files across worker processes.
+9. Queue slow handlers off async event-loop threads.
+10. Stop queue listeners and close owned handlers during shutdown.
+11. Log exceptions once at the policy boundary.
+12. Keep secrets and unnecessary personal data out of records.
 
-**`main.py`:**
-
-```python
-from utils.logger import setup_logging
-setup_logging()   # root → all.log + console
-```
-
-**`src/data/logger.py`** (same as above, but note `propagate=False` stops double-emit — see [02_hierarchy_and_propagation.md](./02_hierarchy_and_propagation.md#the-double-emit-problem) for the mechanics):
-
-```python
-def get_data_logger() -> logging.Logger:
-    logger = logging.getLogger("data")
-    logger.setLevel(logging.INFO)
-    if not logger.hasHandlers():
-        fh = logging.FileHandler(LOG_FILE)
-        fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
-        logger.addHandler(fh)
-        logger.propagate = False   # ← critical when root also has handlers
-    return logger
-```
-
-If you want records to appear in **both** `data.log` and `all.log`, set `propagate=True` (the default). The record will be handled by the subfolder's `FileHandler` AND walk up to root's handlers.
+> **Mental model**: logging configuration is a process-wide routing graph. Build
+> it in one owned place, then let named module loggers feed it.
 
 ---
 
-## Best Practices
-
-1. **Never call `basicConfig` or `setup_logging()` more than once per process.** Multiple calls add duplicate handlers to root.
-2. **Always check `if not logger.hasHandlers()`** before adding handlers in factory functions.
-3. **Set `propagate=False`** on named loggers that have their own handlers, unless you explicitly want double-emit.
-4. **Never configure logging in a library's `__init__.py`** — only in application entry points.
-5. **Use `logger.exception()` in `except` blocks**, not `logger.error()` — it attaches the traceback automatically.
-6. **Pass arguments as parameters**, not f-strings: `logger.info("user %s logged in", user_id)` — this avoids string formatting when the level is filtered out.
-
----
-
-## TL;DR
-
-| Need | What to do |
-|------|------------|
-| Log per subfolder | Each folder: `logger.py` + `get_logger()` + `FileHandler` + `propagate=False` |
-| Log everywhere | Configure once at entry, `getLogger(__name__)` in every module |
-| Both | Central `setup_logging()` + subfolder loggers with `propagate=False` |
+**Next**: [Structured Logging with structlog](../structlog_guide.md)

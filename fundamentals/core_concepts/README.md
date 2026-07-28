@@ -12,27 +12,27 @@
 
 | File | Topic | Description |
 |------|-------|-------------|
-| [typing.md](typing.md) | Typing | `Optional` (preferred), `Literal`, `TypedDict`, `TypeVar`, `Protocol`, Callable |
-| [context_managers.md](context_managers.md) | Context Managers | `with` / `async with`, `@contextmanager`, `ExitStack`, pitfalls |
-| [decorators.md](decorators.md) | Decorators | `@` syntax, `functools.wraps`, parameterized decorators |
-| [exceptions.md](exceptions.md) | Exceptions | Propagation, `raise` variants, `raise from`, production patterns |
-| [logging/](logging/README.md) | Logging | Logger hierarchy, `propagate`, handler/formatter pipeline, per-module vs universal |
-| [structlog_guide.md](structlog_guide.md) | Structured Logging | structlog, processors, FastAPI integration, request context |
-| [configuration.md](configuration.md) | Configuration | pydantic-settings, `.env`, secrets, validation |
-| [signals.md](signals.md) | Unix Signals | SIGTERM/SIGKILL/SIGINT, graceful shutdown, lifespan, async signal handling |
+| [typing.md](typing.md) | Typing | Runtime vs static contracts, `Optional`, `TypedDict`, generics, protocols, `ParamSpec`, `Annotated` |
+| [context_managers.md](context_managers.md) | Context Managers | Resource lifetimes, protocol mechanics, partial setup, async managers, `ExitStack` |
+| [decorators.md](decorators.md) | Decorators | Rebinding mental model, closures, `wraps`, parameters, async wrappers, stacking |
+| [exceptions.md](exceptions.md) | Exceptions | Stack unwinding, precise catches, chaining, domain translation, boundaries, exception groups |
+| [logging/](logging/README.md) | Logging | Admission and propagation mechanics, handler routing, queues, framework and process ownership |
+| [structlog_guide.md](structlog_guide.md) | Structured Logging | Processor pipelines, unified stdlib output, FastAPI request context, testing |
+| [configuration.md](configuration.md) | Configuration | Source precedence, pydantic-settings, `.env`, secret delivery, validation, caching |
+| [signals.md](signals.md) | Unix Signals | Python delivery mechanics, bounded graceful shutdown, asyncio, Uvicorn, containers |
 
 ---
 
 ## Reading Order
 
-1. **Typing** — the vocabulary every other file uses
-2. **Context Managers** — how `with` / `async with` work (used by DB sessions, HTTP clients, lifespan, …)
-3. **Decorators** — understand how functions wrap functions
-4. **Exceptions** — understand error propagation and handling
-5. **Logging** — stdlib logging: basics → hierarchy → handlers → patterns
-6. **Structured Logging** — upgrade to structlog for production
-7. **Configuration** — manage settings and secrets
-8. **Signals** — graceful shutdown, SIGTERM handling, uvicorn lifespan pattern
+1. **Typing** — learn the contract vocabulary used by every later example
+2. **Context Managers** — understand resource lifetimes before database/client examples
+3. **Decorators** — expand `@` syntax into ordinary function rebinding and closures
+4. **Exceptions** — follow failures through layers and decide where policy belongs
+5. **Logging** — make success and failure observable without duplicate or missing records
+6. **Structured Logging** — turn records into searchable events with request context
+7. **Configuration** — validate deployment input and secret delivery at startup
+8. **Signals** — coordinate application cleanup with the process/platform lifecycle
 
 For request-scoped state and async-safe context propagation, read [concurrency/async/03_contextvars.md](../concurrency/async/03_contextvars.md).
 
@@ -40,4 +40,4 @@ For request-scoped state and async-safe context propagation, read [concurrency/a
 
 ## Prerequisites
 
-- Basic Python (functions, classes, context managers)
+- Basic Python (functions, classes, imports, and function calls)

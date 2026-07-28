@@ -2,15 +2,18 @@
 
 > Threads are useful when you need shared memory, blocking I/O integration, responsiveness, or C-extension work that releases the GIL.
 
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg?logo=python&logoColor=white)](https://docs.python.org/3/library/threading.html)
+
 ---
 
-## Read these
+## Contents
 
 | Guide | Topic |
 |-------|-------|
 | [01_thread_pool_executor.md](01_thread_pool_executor.md) | `ThreadPoolExecutor`, futures, `map`, `submit`, timeouts, shutdown, and deadlocks. |
 | [02_synchronization_primitives.md](02_synchronization_primitives.md) | Locks, try-locks, semaphores, conditions, queues, signaling, reader-writer patterns, livelock, and CAS caveats. |
 | [../01_state_and_safety.md](../01_state_and_safety.md) | Which objects can be shared, which need locks, and what "thread-safe" really means. |
+| [../02_alternative_runtimes.md](../02_alternative_runtimes.md) | How free-threaded CPython changes parallelism and correctness assumptions. |
 
 ---
 
@@ -26,6 +29,14 @@ Use threads for:
 - Small amounts of shared in-memory coordination with locks.
 
 Do not expect standard CPython threads to speed up pure Python CPU loops on the default GIL build. Use processes for that unless you are deliberately targeting a free-threaded build and have tested your dependency graph.
+
+---
+
+## Reading Order
+
+1. **ThreadPoolExecutor** — integrate independent blocking calls and learn future, timeout, and shutdown semantics.
+2. **Synchronization primitives** — coordinate shared state only after the worker and ownership model is clear.
+3. **State and safety** — revisit the cross-scheduler matrix when threads interact with async code or processes.
 
 ---
 
@@ -73,3 +84,7 @@ py-spy top --pid <PID>
 - Treat the GIL as an implementation detail, not a correctness primitive.
 
 For the lower-level primitive details, see [02_synchronization_primitives.md](02_synchronization_primitives.md).
+
+---
+
+**Next**: [ThreadPoolExecutor](01_thread_pool_executor.md)

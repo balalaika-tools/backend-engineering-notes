@@ -1,118 +1,240 @@
 # Logger Hierarchy and Propagation
 
-## The Logger Tree
+> **Who this is for**: Python developers who see duplicate, missing, or wrongly
+> filtered logs and need to understand exactly how logger names, effective
+> levels, handlers, and `propagate` interact.
 
-Every logger has a name. Python maps these names to a tree using dot-notation — each dot is a parent-child boundary:
+Logger names form a tree. A record is admitted by the logger where the call was
+made, then offered to handlers on that logger and its ancestors.
 
-```
+---
+
+## 1. Dotted Names Build the Tree
+
+```text
 root  ("")
-├── gtracer
-├── exceptionist
-│   ├── exceptionist.ai_engine
-│   │   └── exceptionist.ai_engine.agent
-│   └── exceptionist.core
-│       └── exceptionist.core.tracer
+├── myapp
+│   ├── myapp.api
+│   │   └── myapp.api.orders
+│   └── myapp.workers
 └── uvicorn
     └── uvicorn.access
 ```
 
-`logging.getLogger("exceptionist.ai_engine.agent")` creates (or retrieves) the node at that path. `logging.getLogger(__name__)` does the same thing automatically using the module's dotted import path.
+```python
+import logging
 
-The **root logger** is the top of every tree. It has no name (`""`) and is retrieved with `logging.getLogger()` (no argument).
+orders_logger = logging.getLogger("myapp.api.orders")
+module_logger = logging.getLogger(__name__)
+root_logger = logging.getLogger()
+```
+
+Multiple calls to `getLogger()` with the same name return the same `Logger`
+object. Never instantiate `logging.Logger` directly.
+
+Using `getLogger(__name__)` makes the logger hierarchy match the package
+hierarchy. Configuration can then target one module or a complete subtree
+without changing application code.
 
 ---
 
-## How Records Propagate
+## 2. Effective Level Is the Admission Gate
 
-When a logger emits a record, it:
+A new non-root logger has level `NOTSET`. That means it searches upward for the
+nearest explicitly set level; the result is its **effective level**.
 
-1. Passes the record to all its **own handlers**
-2. If `propagate=True` (the default), passes it **up to the parent**, which does the same — all the way to root
+```python
+import logging
+
+logging.getLogger().setLevel(logging.WARNING)
+logging.getLogger("myapp").setLevel(logging.INFO)
+logging.getLogger("myapp.api").setLevel(logging.DEBUG)
+
+orders = logging.getLogger("myapp.api.orders")
+workers = logging.getLogger("myapp.workers")
+
+assert orders.getEffectiveLevel() == logging.DEBUG
+assert workers.getEffectiveLevel() == logging.INFO
+```
+
+When code calls `orders.debug(...)`, the `orders` logger uses that effective
+level to decide whether to create and process a record.
 
 ```
-exceptionist.ai_engine.agent  (no handler, propagate=True)
-  → exceptionist.ai_engine    (no handler, propagate=True)
-    → exceptionist             (no handler, propagate=True)
-      → root                  (has StreamHandler) ← record emitted here
+call on myapp.api.orders
+           │
+           ▼
+record level >= orders effective level?
+        │                    │
+       no                   yes
+        │                    │
+     discard              create record
 ```
 
-This is why you can call `logging.getLogger(__name__)` in every module without configuring handlers there — the record walks up to root where the handler lives.
+This ancestor lookup happens to determine the **originating logger's** effective
+level. It is not a second round of filtering during propagation.
 
 ---
 
-## `propagate=False` — Stopping the Walk
+## 3. Propagation Goes Directly to Ancestor Handlers
 
-Set `propagate=False` to prevent a record from reaching parent loggers:
+After a record passes the originating logger's level and filters:
+
+1. handlers attached directly to that logger are offered the record;
+2. if `propagate=True` (the default), handlers on its parent are offered it;
+3. the walk continues until root or a logger with `propagate=False`.
+
+```text
+myapp.api.orders  (origin, no handler, propagate=True)
+        │
+        ▼
+myapp.api         (no handler, propagate=True)
+        │
+        ▼
+myapp             (no handler, propagate=True)
+        │
+        ▼
+root              (console handler emits)
+```
+
+The subtle rule: propagation passes the record directly to ancestor
+**handlers**. Ancestor logger levels and ancestor logger filters are not
+consulted.
 
 ```python
-logger = logging.getLogger("gtracer")
-logger.setLevel(logging.INFO)
-logger.addHandler(some_handler)
-logger.propagate = False   # record stops here, never reaches root
+root = logging.getLogger()
+root.setLevel(logging.ERROR)
+
+child = logging.getLogger("myapp.api")
+child.setLevel(logging.DEBUG)
+
+# If root has a DEBUG-capable handler, this record can still be emitted there.
+# root's ERROR logger level does not re-filter a record admitted by child.
+child.debug("request decoded")
 ```
 
-```
-gtracer  (has its own handler, propagate=False)
-  → stops here, never reaches root
-```
+Handler levels still apply. To restrict what a destination emits, set the level
+on that handler.
 
-This is the standard pattern when a logger needs its own destination (e.g. a dedicated file) and you don't want the same record also emitting from root.
+> **Key insight**: logger levels answer "should this call create a record?"
+> Handler levels answer "should this destination emit the admitted record?"
 
 ---
 
-## The Double-Emit Problem
+## 4. Use `propagate=False` for an Owned Subtree
 
-If you add a handler to a named logger **and** leave `propagate=True`, records get emitted twice — once by the logger's own handler and once by root's handler:
-
-```python
-# BAD — double emit
-logger = logging.getLogger("myapp")
-logger.addHandler(FileHandler("myapp.log"))    # handler here
-# propagate=True by default → also reaches root's StreamHandler
-```
-
-Fix with either:
+Set `propagate=False` when a named logger has its own complete handler route and
+must not also reach ancestors:
 
 ```python
-logger.propagate = False   # option 1 — cut the walk
+import logging
+
+audit = logging.getLogger("myapp.audit")
+audit.setLevel(logging.INFO)
+audit.addHandler(logging.FileHandler("audit.log", encoding="utf-8"))
+audit.propagate = False
 ```
 
-```python
-if not logger.hasHandlers():   # option 2 — skip adding if already set up
-    logger.addHandler(...)
+```text
+myapp.audit  ──► audit.log
+     │
+     └── propagation stops; root handlers do not receive the record
 ```
 
-The `if not logger.hasHandlers()` guard is common in library code and per-subfolder logger factories, where the same setup function might be called multiple times.
+This setting applies to descendants too. A record from
+`myapp.audit.writer` walks to `myapp.audit`, uses its handlers, and stops there.
+
+Leave propagation enabled when root is the intended centralized route. Most
+applications only need handlers at root.
 
 ---
 
-## Level Filtering at Each Node
+## 5. Duplicate Emission Comes from Overlapping Handlers
 
-A logger only emits a record if the record's level is **≥ the logger's own level**. But a logger with no explicit level set inherits its **effective level** from its nearest ancestor that has one:
+A record is emitted once per handler it reaches. If a named logger and root each
+have a console handler, one call can produce the same line twice:
 
-```python
-logging.getLogger("exceptionist").setLevel(logging.WARNING)
-# exceptionist.ai_engine inherits WARNING (no level set on it)
-# exceptionist.ai_engine.agent inherits WARNING too
-
-logging.getLogger("exceptionist.ai_engine").setLevel(logging.DEBUG)
-# now exceptionist.ai_engine and its children use DEBUG
-# exceptionist.core.tracer still uses WARNING (from exceptionist)
+```text
+myapp.api.orders
+        │ own handler ─────────────────────► console (first line)
+        │ propagate=True
+        ▼
+root
+        └── root handler ──────────────────► console (second line)
 ```
 
-You can verify the effective level:
+Choose one intentional topology:
 
 ```python
-logger.getEffectiveLevel()  # returns the numeric level in effect
+# Option A: centralized application logging
+for handler in child.handlers[:]:
+    child.removeHandler(handler)
+    handler.close()
+child.propagate = True
+# Configure handlers at root.
 ```
+
+```python
+# Option B: the subtree owns its destination
+child.addHandler(dedicated_handler)
+child.propagate = False
+```
+
+Do not use `logger.hasHandlers()` to mean "does this logger have a handler
+directly attached?" It searches ancestors and returns `True` when root has a
+handler.
+
+```python
+if not logger.handlers:
+    # This checks only handlers directly attached to this logger.
+    logger.addHandler(dedicated_handler)
+```
+
+Even this guard is a fallback for an idempotent local factory. Centralized
+configuration is clearer because it builds the topology in one place.
 
 ---
 
-## Quick Reference
+## 6. Diagnose a Missing or Duplicate Record
 
-| Concept | Default | What it does |
-|---------|---------|--------------|
-| `propagate` | `True` | Passes record up to parent after own handlers run |
-| `propagate=False` | — | Record stops at this logger; parent never sees it |
-| Level on logger | Inherited from parent | Filters records before they reach any handler |
-| Root logger | Always exists | Last stop in every propagation chain |
+Inspect both the originating logger and every handler it can reach:
+
+```python
+import logging
+
+
+def describe_logger(name: str) -> dict[str, object]:
+    logger = logging.getLogger(name)
+    return {
+        "name": logger.name,
+        "level": logging.getLevelName(logger.level),
+        "effective_level": logging.getLevelName(logger.getEffectiveLevel()),
+        "propagate": logger.propagate,
+        "disabled": logger.disabled,
+        "direct_handlers": [
+            {
+                "type": type(handler).__name__,
+                "level": logging.getLevelName(handler.level),
+            }
+            for handler in logger.handlers
+        ],
+    }
+```
+
+Checklist:
+
+1. Is the logger disabled by configuration?
+2. Does the record pass the originating logger's effective level?
+3. Does a logger filter reject it?
+4. Which direct handlers receive it?
+5. Is propagation stopped before the expected ancestor?
+6. Does each reached handler's level and filters admit it?
+7. Are two reached handlers writing to the same destination?
+8. Did `dictConfig()` disable existing loggers?
+
+> **Mental model**: one admission gate at the origin, then a handler walk toward
+> root. During that walk, handler policy matters; ancestor logger levels do not.
+
+---
+
+**Next**: [Handlers and Formatters](03_handlers_and_formatters.md)

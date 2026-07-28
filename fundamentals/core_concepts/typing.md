@@ -1,6 +1,13 @@
 # Python Typing
 
+> **Who this is for**: Python developers who can read basic annotations and want
+> to design useful contracts for backend code without turning every signature
+> into a type-system puzzle.
+
 > Type hints are not enforced at runtime by Python itself — they exist for readers, IDEs, and type checkers (mypy, pyright). In this corpus Pydantic and FastAPI read them at runtime to derive validation and schemas, so on the backend they do real work beyond documentation. This guide covers the parts you actually hit writing FastAPI / SQLAlchemy / data code.
+
+> **Mental model**: a type hint is a contract for tools and readers. It becomes
+> runtime behavior only when some library explicitly inspects it.
 
 ---
 
@@ -112,12 +119,25 @@ addr: Address = {"street": "...", "city": "...", "zip": "..."}
 
 TypedDict is for **type-checker-only** documentation. It is not validated at runtime. For actual validation from untrusted input, use Pydantic.
 
-Use `total=False` for dicts where some keys may be absent:
+Use `NotRequired` when individual keys may be absent:
 
 ```python
-class Partial(TypedDict, total=False):
-    a: int
-    b: int
+from typing import NotRequired, TypedDict
+
+
+class UserPatch(TypedDict):
+    display_name: NotRequired[str]
+    timezone: NotRequired[str]
+    revision: int
+```
+
+`total=False` makes **every** key omittable. That is useful for a true partial
+mapping, but it is too broad when some keys remain required:
+
+```python
+class PartialUser(TypedDict, total=False):
+    display_name: str
+    timezone: str
 ```
 
 ---
@@ -184,6 +204,11 @@ Use Protocol when:
 - You're writing a library and don't want to force inheritance on users.
 - You're mocking in tests and want the mock to type-check without faking a full class.
 
+Protocols are static by default. `isinstance(value, SupportsClose)` raises
+`TypeError` unless the protocol uses `@runtime_checkable`, and runtime-checkable
+protocols only check that attributes exist—not their full signatures. Prefer
+ordinary duck typing unless a runtime check is genuinely needed.
+
 ---
 
 ## 8. `Callable`
@@ -208,7 +233,65 @@ AsyncHandler = Callable[[Request], Awaitable[Response]]
 
 ---
 
-## 9. `Final` and `ClassVar`
+## 9. `ParamSpec` — Preserve a Callable's Parameters
+
+`Callable[..., R]` preserves the return type but says nothing about the
+parameters. A decorator or forwarding helper can use `ParamSpec` to keep the
+complete signature:
+
+```python
+from collections.abc import Callable
+from functools import wraps
+from typing import ParamSpec, TypeVar
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def traced(operation: Callable[P, R]) -> Callable[P, R]:
+    @wraps(operation)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        print(f"calling {operation.__qualname__}")
+        return operation(*args, **kwargs)
+
+    return wrapper
+```
+
+The type checker retains positional-only, keyword-only, variadic, and named
+parameters represented by `P`. See
+[Decorators](decorators.md#5-support-real-function-signatures) for the runtime
+mechanics this annotation describes.
+
+---
+
+## 10. `Annotated` — Attach Metadata to a Type
+
+`Annotated` keeps a normal type in its first position and adds metadata for
+libraries:
+
+```python
+from typing import Annotated
+
+from pydantic import Field
+
+PageSize = Annotated[int, Field(ge=1, le=100)]
+
+
+def list_orders(limit: PageSize = 20) -> list[str]:
+    return []
+```
+
+A static type checker treats `PageSize` as `int`. Pydantic or FastAPI can inspect
+the `Field` metadata to enforce bounds and generate a schema. Python itself still
+does not validate a direct call such as `list_orders(10_000)`.
+
+Use `Annotated` when metadata belongs to the type at a framework boundary.
+Keep ordinary business functions explicit rather than assuming annotations
+validate every call.
+
+---
+
+## 11. `Final` and `ClassVar`
 
 ```python
 from typing import Final, ClassVar
@@ -225,7 +308,7 @@ class Service:
 
 ---
 
-## 10. Where This Plays with Pydantic and FastAPI
+## 12. Where This Plays with Pydantic and FastAPI
 
 | Construct | FastAPI behavior |
 |-----------|------------------|
@@ -237,22 +320,35 @@ class Service:
 | `x: dict[str, int]` | Expects an object with string keys and int values |
 | `status: Annotated[str, Field(pattern="^...$")]` | Validated string |
 
-FastAPI uses the annotations at route-registration time to build OpenAPI and routing. Missing or wrong annotations silently degrade validation — a parameter typed `Any` or unannotated gets no validation.
+FastAPI uses annotations at route-registration time to build validation rules,
+OpenAPI, and parameter behavior. A broad annotation such as `Any` gives it very
+little to validate. An unannotated parameter is not equivalent to "accept
+anything": FastAPI still applies its parameter-source rules, but lacks a precise
+Python type contract. Make boundary annotations explicit.
 
 ---
 
-## 11. Common Mistakes
+## 13. Common Mistakes
 
 - **Writing `Optional[X]` when you mean "optional argument".** Add `= None` to make it omittable.
 - **Annotating `list` or `dict` without type parameters.** `list` means `list[Any]` — no type checking. Always write `list[str]`, not bare `list`.
 - **Forgetting to annotate return types.** Type checkers infer them but the annotation documents intent for readers. Be explicit for public functions.
 - **Using `Any` to silence the type checker.** It works but disables checking for everything downstream. Prefer `object`, `Protocol`, or a real type.
 - **Typing something as the concrete class when a Protocol would do.** Makes tests harder — you need a full fake.
+- **Assuming a type hint validates an ordinary call.** `def set_age(age: int)`
+  still accepts `"12"` at runtime unless code or a framework validates it.
+- **Catching type-checker errors with casts everywhere.** `cast()` changes the
+  checker's view only; it performs no runtime conversion or check. Fix the source
+  type or validate the data at the boundary.
 
 ---
 
-## See also
+## 14. See Also
 
 - [context_managers.md](context_managers.md) — Protocol for `SupportsClose` pattern.
 - [../fastapi/03_pydantic.md](../fastapi/03_pydantic.md) — how Pydantic consumes annotations.
 - [../fastapi/01_http_and_parameter_mapping.md](../fastapi/01_http_and_parameter_mapping.md) — how FastAPI routes use annotations.
+
+---
+
+**Next**: [Context Managers — setup, teardown, and resource lifetimes](context_managers.md)

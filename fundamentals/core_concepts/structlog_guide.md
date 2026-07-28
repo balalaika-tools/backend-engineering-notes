@@ -1,6 +1,13 @@
 # Structured Logging with structlog
 
-A production guide to structured logging in Python. This picks up where [logging/](logging/README.md) leaves off -- stdlib logging gets you started, structlog gets you to production.
+> **Who this is for**: Python backend developers who understand stdlib
+> [logging](logging/README.md) and need searchable event fields, request-scoped
+> context, consistent third-party logs, and a production-safe processor pipeline.
+
+`structlog` builds log events as dictionaries and transforms them through a
+processor chain. It can render directly or integrate with stdlib logging for
+handlers and third-party libraries. Production readiness comes from the complete
+configuration and operating model—not from installing the package alone.
 
 ---
 
@@ -42,14 +49,16 @@ Now every log aggregator (Datadog, ELK, CloudWatch, Loki) can:
 
 | Aspect | stdlib `logging` | `structlog` |
 |--------|-----------------|-------------|
-| Output format | String templates (`%(message)s`) | JSON by default in production |
+| Output format | String templates (`%(message)s`) | Event dictionaries rendered however you configure |
 | Adding context | Pass `extra={}` dict, easy to forget | `.bind()` attaches context that persists |
 | Processor pipeline | Handlers + Formatters (class-based) | Chain of simple functions |
-| Immutable loggers | No -- global mutable state | Yes -- `.bind()` returns a new logger |
+| Bound context | `LoggerAdapter` or `extra={}` | `.bind()` returns a logger with copied local context |
 | Performance | Good | Good (pluggable fast JSON via `orjson`/`msgspec`) |
 | stdlib compatibility | Native | Full integration -- can wrap or replace |
 
-> **Key insight**: structlog is not a replacement for stdlib logging. It is a **layer on top** that gives you structured output and context propagation while still using stdlib's infrastructure underneath.
+> **Key insight**: structlog can render directly, but most backend applications
+> integrate it with stdlib logging so framework and dependency logs use the same
+> handlers and output format.
 
 ---
 
@@ -236,7 +245,8 @@ This is safe for concurrent use. No shared mutable state.
 
 ### Custom Processors
 
-A processor is just a function. Here's a real example -- dropping sensitive fields:
+A processor is just a function. This minimal example redacts known top-level
+fields:
 
 ```python
 SENSITIVE_KEYS = {"password", "token", "secret", "authorization", "credit_card"}
@@ -269,6 +279,12 @@ Now any log call with a sensitive key gets redacted automatically:
 log.info("user_login", username="alice", password="hunter2")
 # {"event": "user_login", "username": "alice", "password": "[REDACTED]"}
 ```
+
+This denylist is defense in depth, not a security boundary. It misses nested
+values, alternate spellings, credentials embedded in URLs, and secrets inside
+free-text exception messages. Prefer an allowlist of fields at each log call,
+never log raw headers or payloads, and apply centralized scrubbing before
+long-term storage.
 
 ### Processor Order Matters
 
@@ -356,13 +372,14 @@ import logging
 import structlog
 
 
-def setup_logging(json_logs: bool = True, log_level: str = "INFO"):
+def setup_logging(json_logs: bool = True, log_level: str = "INFO") -> None:
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
-        structlog.stdlib.ExtraAdder(),
+        structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
     ]
 
     if json_logs:
@@ -371,7 +388,8 @@ def setup_logging(json_logs: bool = True, log_level: str = "INFO"):
         renderer = structlog.dev.ConsoleRenderer()
 
     formatter = structlog.stdlib.ProcessorFormatter(
-        foreign_pre_chain=shared_processors,
+        # Only foreign stdlib records have LogRecord.extra fields to merge.
+        foreign_pre_chain=shared_processors + [structlog.stdlib.ExtraAdder()],
         processors=[
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
             renderer,
@@ -383,13 +401,17 @@ def setup_logging(json_logs: bool = True, log_level: str = "INFO"):
 
     # Configure root logger -- catches all stdlib logging (uvicorn, sqlalchemy, etc.)
     root_logger = logging.getLogger()
-    root_logger.handlers.clear()
+    for existing_handler in root_logger.handlers[:]:
+        root_logger.removeHandler(existing_handler)
+        existing_handler.close()
     root_logger.addHandler(handler)
     root_logger.setLevel(log_level)
 
     # Configure structlog
     structlog.configure(
         processors=shared_processors + [
+            # Preserve logging-style calls such as log.info("user %s", user_id).
+            structlog.stdlib.PositionalArgumentsFormatter(),
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),
@@ -398,7 +420,17 @@ def setup_logging(json_logs: bool = True, log_level: str = "INFO"):
     )
 ```
 
-> **Why `shared_processors`?** Both structlog and stdlib logs flow through the same processor list. This guarantees consistent output format regardless of the log source.
+> **Why `shared_processors`?** Structlog events run through this list before
+> `wrap_for_formatter`; foreign stdlib records run through the same list as
+> `foreign_pre_chain`. `ProcessorFormatter` then removes its private metadata and
+> renders both sources identically. Keep exception formatting before the renderer
+> so one JSON event contains the traceback instead of emitting a second
+> non-JSON traceback block.
+
+This setup intentionally takes ownership of root logging and closes handlers it
+replaces. When Uvicorn or another host must retain its handlers, supply one
+coordinated logging configuration to the host instead of clearing them after
+startup.
 
 ---
 
@@ -426,46 +458,78 @@ log.info("processing")
 This is the production pattern. A middleware that automatically adds context to every log within a request. The middleware mechanics (setting a contextvar on entry, resetting on exit, propagating through async code) are the same as any request-id middleware — see [ContextVars - Pattern 1: Request ID Middleware](../concurrency/async/03_contextvars.md#pattern-1-request-id-middleware-fastapi) for the general form. The structlog-specific part below is how `bind_contextvars` puts the same values into every subsequent `structlog.get_logger().info(...)` call without any manual passing.
 
 ```python
-import uuid
+import re
 import time
+import uuid
+
 import structlog
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app):
-        super().__init__(app)
+class RequestLoggingMiddleware:
+    """Pure ASGI middleware that owns request log context."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
         self.log = structlog.get_logger()
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        # Clear previous context and bind new request context
+        candidate = Headers(scope=scope).get("x-request-id")
+        request_id = (
+            candidate
+            if candidate is not None and REQUEST_ID.fullmatch(candidate)
+            else uuid.uuid4().hex
+        )
+
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(
             request_id=request_id,
-            method=request.method,
-            path=request.url.path,
+            method=scope["method"],
+            path=scope["path"],
         )
 
-        start_time = time.perf_counter()
+        started = time.perf_counter()
+        status_code: int | None = None
+
+        async def send_with_context(message: Message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                MutableHeaders(scope=message)["X-Request-ID"] = request_id
+            await send(message)
 
         try:
-            response = await call_next(request)
+            await self.app(scope, receive, send_with_context)
         except Exception:
-            self.log.exception("request_failed")
-            raise
-        else:
-            duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
-            self.log.info(
-                "request_completed",
-                status_code=response.status_code,
+            duration_ms = round((time.perf_counter() - started) * 1_000, 2)
+            self.log.exception(
+                "request_failed",
+                status_code=status_code,
                 duration_ms=duration_ms,
             )
-            response.headers["X-Request-ID"] = request_id
-            return response
+            raise
+        else:
+            duration_ms = round((time.perf_counter() - started) * 1_000, 2)
+            self.log.info(
+                "request_completed",
+                status_code=status_code,
+                duration_ms=duration_ms,
+            )
+        finally:
+            # Remove request fields even if the app raises or is cancelled.
+            structlog.contextvars.clear_contextvars()
 ```
 
 Register it:
@@ -499,6 +563,17 @@ async def get_order(order_id: int):
 ```
 
 You never pass `request_id` manually. The middleware bound it to the context, and `merge_contextvars` in your processor chain picks it up.
+
+The inbound ID is treated as untrusted input: the example accepts only a small,
+log-safe character set and bounded length, otherwise it generates a new ID.
+Production gateways may instead map an external trace header to a separately
+generated internal request ID.
+
+`contextvars` storage is isolated across async tasks and threads. In hybrid
+Starlette/FastAPI code, values bound inside a synchronous dependency running in a
+thread pool do not automatically flow back into the async task. Bind common
+request context in async middleware; pass values explicitly across boundaries
+that need to return new context.
 
 ### Adding User Context via Dependency
 
@@ -537,25 +612,35 @@ import structlog
 
 log = structlog.get_logger()
 
-async def call_billing_service(user_id: int, amount: float):
+
+async def call_billing_service(
+    client: httpx.AsyncClient,
+    user_id: int,
+    amount: float,
+) -> dict[str, object]:
     # Get the current request_id from context
     ctx = structlog.contextvars.get_contextvars()
     request_id = ctx.get("request_id", "unknown")
 
     log.info("calling_billing", user_id=user_id, amount=amount)
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "https://billing.internal/charge",
-            json={"user_id": user_id, "amount": amount},
-            headers={"X-Request-ID": request_id},  # propagate
-        )
+    response = await client.post(
+        "https://billing.internal/charge",
+        json={"user_id": user_id, "amount": amount},
+        headers={"X-Request-ID": str(request_id)},
+    )
+    response.raise_for_status()
 
     log.info("billing_response", status_code=response.status_code)
     return response.json()
 ```
 
 Service B's middleware picks up `X-Request-ID` from the header and binds it. Now you can trace a single user action across both services by searching for one request ID.
+
+The caller injects an application-lifetime `AsyncClient` so requests reuse its
+connection pool. In systems using distributed tracing, propagate the standard
+trace context and log trace/span IDs; a request ID is useful but is not a
+replacement for tracing.
 
 ### Structured Exception Logging
 
@@ -626,6 +711,10 @@ Output:
 
 Now you can build dashboards showing p50/p95/p99 for each operation.
 
+Use logs for diagnostic exemplars and request context; use a metrics or tracing
+system for reliable latency histograms. Deriving percentiles from sampled,
+dropped, or delayed logs can produce biased results and high ingestion cost.
+
 ### Log Sampling for High-Throughput Endpoints
 
 ```python
@@ -638,6 +727,11 @@ def sample_processor(logger, method_name, event_dict):
             raise structlog.DropEvent
     return event_dict
 ```
+
+Place sampling after fields such as `level` and `path` have been added but before
+the renderer. Never sample errors, security audit events, billing events, or
+other records whose absence changes correctness. Count dropped events with a
+metric so sampling itself remains observable.
 
 ---
 
@@ -659,9 +753,10 @@ def setup_logging():
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
-        structlog.stdlib.ExtraAdder(),
+        structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
     ]
 
     if json_logs:
@@ -672,7 +767,7 @@ def setup_logging():
         renderer = structlog.dev.ConsoleRenderer(colors=True)
 
     formatter = structlog.stdlib.ProcessorFormatter(
-        foreign_pre_chain=shared_processors,
+        foreign_pre_chain=shared_processors + [structlog.stdlib.ExtraAdder()],
         processors=[
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
             renderer,
@@ -683,12 +778,15 @@ def setup_logging():
     handler.setFormatter(formatter)
 
     root_logger = logging.getLogger()
-    root_logger.handlers.clear()
+    for existing_handler in root_logger.handlers[:]:
+        root_logger.removeHandler(existing_handler)
+        existing_handler.close()
     root_logger.addHandler(handler)
     root_logger.setLevel(log_level)
 
     structlog.configure(
         processors=shared_processors + [
+            structlog.stdlib.PositionalArgumentsFormatter(),
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),
@@ -723,7 +821,7 @@ One JSON object per line. Machine-parseable. Ready for Datadog, ELK, CloudWatch.
 | Format | Aligned, colored text | Single-line JSON |
 | Audience | Developer terminal | Log aggregator |
 | Log level | `DEBUG` | `INFO` or `WARNING` |
-| Performance | Not a concern | Use `cache_logger_on_first_use=True` |
+| Performance | Optimize for readability | Measure volume/latency; keep rendering off hot paths when needed |
 
 ---
 
@@ -831,7 +929,46 @@ log.info("user_authenticated", user_id=user.id)
 
 ---
 
-## Quick Reference
+## 10. Test Event Fields, Not Rendered Strings
+
+`capture_logs()` makes it easy to assert the event dictionary:
+
+```python
+import structlog
+from structlog.testing import capture_logs
+
+
+def test_purchase_log_has_searchable_fields() -> None:
+    with capture_logs() as events:
+        structlog.get_logger().info(
+            "purchase_completed",
+            user_id=42,
+            amount=99.50,
+        )
+
+    assert events == [
+        {
+            "event": "purchase_completed",
+            "log_level": "info",
+            "user_id": 42,
+            "amount": 99.50,
+        }
+    ]
+```
+
+By default, `capture_logs()` disables configured processors. Pass processors such
+as `merge_contextvars` explicitly when their output is part of the contract.
+Because capture temporarily changes global structlog configuration, cached
+loggers may not observe it; disable `cache_logger_on_first_use` in tests or use a
+dedicated `LogCapture` fixture.
+
+Keep separate integration tests for the complete JSON pipeline. Parse each
+output line as JSON and assert required fields, one-line exception rendering, and
+consistent stdlib/structlog output.
+
+---
+
+## 11. Quick Reference
 
 ### Startup Checklist
 
@@ -844,11 +981,13 @@ log.info("user_authenticated", user_id=user.id)
 
 ### Processor Chain Template
 
+For direct structlog rendering without `ProcessorFormatter`:
+
 ```python
 processors = [
     structlog.contextvars.merge_contextvars,     # 1. gather async context
     structlog.stdlib.add_log_level,              # 2. add level field
-    structlog.stdlib.ExtraAdder(),               # 3. stdlib extra compat
+    structlog.stdlib.add_logger_name,             # 3. add logger name
     drop_sensitive_fields,                       # 4. your custom processors
     structlog.processors.TimeStamper(fmt="iso"), # 5. timestamp
     structlog.processors.StackInfoRenderer(),    # 6. stack info
@@ -857,6 +996,10 @@ processors = [
     structlog.processors.JSONRenderer(),         # 8. or ConsoleRenderer()
 ]
 ```
+
+For unified stdlib integration, use the Section 5 pattern: end structlog's chain
+with `ProcessorFormatter.wrap_for_formatter`, run `ExtraAdder` only for foreign
+stdlib records, and put the final renderer in `ProcessorFormatter`.
 
 ### Logger Usage Cheat Sheet
 
@@ -884,3 +1027,5 @@ structlog.contextvars.unbind_contextvars("request_id")
 ```
 
 ---
+
+**Next**: [Configuration — typed settings and secrets](configuration.md)

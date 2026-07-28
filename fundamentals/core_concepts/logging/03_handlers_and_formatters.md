@@ -1,295 +1,352 @@
-# Handlers and Formatters
+# Handlers, Formatters, Filters, and Queues
 
-## The Pipeline
+> **Who this is for**: Python developers who understand logger names and need to
+> route records to consoles, files, or background logging threads without
+> blocking async code or losing important context.
 
-Every log record flows through this pipeline:
-
-```
-Logger.info("msg")
-  └── creates LogRecord
-        └── Handler  (decides *where* the record goes)
-              └── Formatter  (decides *how* it looks)
-```
-
-- A **logger** can have multiple handlers
-- A **handler** has exactly one formatter (or uses a default plain-text one)
-- A **formatter** is stateless — it just renders the `LogRecord` to a string
+A logger expresses an event. A handler owns a destination. A formatter owns its
+presentation. A filter applies policy that levels alone cannot express.
 
 ---
 
-## LogRecord
+## 1. The Complete Record Pipeline
 
-`LogRecord` is the object Python creates for every log call. It carries:
+```text
+logger.info("order completed", extra={...})
+       │
+       ├── originating logger effective level + filters
+       │
+       ▼
+   LogRecord
+       │
+       ├── handler A level + filters ──► formatter A ──► stdout
+       ├── handler B level + filters ──► formatter B ──► errors.log
+       └── propagate to ancestor handlers
+```
 
-| Attribute | Format key | Value |
-|-----------|------------|-------|
-| Message | `%(message)s` | The string you passed in |
-| Logger name | `%(name)s` | e.g. `src.data.load` |
-| Level name | `%(levelname)s` | `INFO`, `ERROR`, etc. |
-| Timestamp | `%(asctime)s` | e.g. `2025-07-05 15:00:00,000` |
-| Filename | `%(filename)s` | Source file name |
-| Line number | `%(lineno)d` | Line in source file |
-| Function | `%(funcName)s` | Function that logged |
-| Process ID | `%(process)d` | OS process ID |
-| Thread ID | `%(thread)d` | OS thread ID |
+A record can reach multiple handlers. Each handler independently decides whether
+to emit it and how to format it.
+
+| Component | Primary question |
+|-----------|------------------|
+| Logger | Is this call enabled, and where does it enter the hierarchy? |
+| `LogRecord` | What happened and where did the call originate? |
+| Handler | Which destination receives it? |
+| Handler level/filter | Does this destination want it? |
+| Formatter | How is it rendered? |
 
 ---
 
-## Formatters
+## 2. `LogRecord` Carries the Event
 
-A formatter turns a `LogRecord` into a string (or dict, for structured logging):
+Python creates a `LogRecord` after the originating logger admits the call.
+Common attributes include:
+
+| Attribute | Format key | Example |
+|-----------|------------|---------|
+| Final message | `%(message)s` | `order 1042 completed` |
+| Original template | `%(msg)s` | `order %s completed` |
+| Logger name | `%(name)s` | `myapp.orders.service` |
+| Level | `%(levelname)s` | `INFO` |
+| Time | `%(asctime)s` | Formatter-generated timestamp |
+| Function | `%(funcName)s` | `complete_order` |
+| Source line | `%(lineno)d` | `87` |
+| Process | `%(process)d` | OS process ID |
+| Thread | `%(threadName)s` | `MainThread` |
+
+Add application context with `extra`:
+
+```python
+logger.info(
+    "order completed",
+    extra={"order_id": "ord-1042", "tenant_id": "tenant-7"},
+)
+```
+
+`extra` keys become attributes on the record. They must not overwrite reserved
+attributes such as `name`, `message`, or `levelname`; doing so raises `KeyError`.
+Every formatter that references a custom key must receive that key on every
+record, or formatting fails. This fragility is one reason structured logging
+libraries use a dedicated event dictionary.
+
+---
+
+## 3. Formatters Render a Record
 
 ```python
 import logging
 
 formatter = logging.Formatter(
-    fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
 )
-```
 
-Attach a formatter to a handler:
-
-```python
 handler = logging.StreamHandler()
 handler.setFormatter(formatter)
 ```
 
-### Common format strings
+Useful text formats:
 
 ```python
-# Minimal
-"%(levelname)s: %(message)s"
+# Compact local output
+"%(levelname)s %(name)s %(message)s"
 
-# Standard
-"%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+# General service output
+"%(asctime)s %(levelname)s %(name)s %(message)s"
 
-# With location
-"%(asctime)s [%(levelname)s] %(name)s (%(filename)s:%(lineno)d): %(message)s"
+# Diagnostic call-site output
+"%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d %(message)s"
 ```
+
+A formatter does not select levels or destinations. It receives a record that
+has already passed those decisions.
+
+For machine ingestion, one JSON object per line is preferable to a hand-parsed
+text format. A robust JSON formatter must handle custom fields, exceptions,
+timestamps, and non-JSON values. Prefer the
+[structlog guide](../structlog_guide.md) or another maintained formatter instead
+of growing a custom serializer unnoticed.
 
 ---
 
-## Built-in Handlers
+## 4. Stream and File Handlers
 
-### `StreamHandler` — write to stdout/stderr
+### `StreamHandler`
 
 ```python
 import logging
 import sys
 
-handler = logging.StreamHandler(sys.stdout)   # default is sys.stderr
-handler.setLevel(logging.INFO)
-handler.setFormatter(formatter)
+console = logging.StreamHandler(sys.stdout)
+console.setLevel(logging.INFO)
+console.setFormatter(formatter)
 ```
 
----
-
-## stdout, stderr, and Buffering
-
-### What are stdin, stdout, and stderr?
-
-When the OS starts any process it automatically opens three communication channels for it, before your code runs a single line. These are called the **standard streams**:
-
-- **stdin** (standard input) — the channel the process reads from. By default it's the keyboard; when you pipe data (`cat file.txt | python app.py`), stdin becomes that pipe.
-- **stdout** (standard output) — the channel the process writes its normal output to. `print()` goes here. By default it goes to the terminal.
-- **stderr** (standard error) — a second output channel reserved for diagnostics, warnings, and errors. It goes to the same terminal by default, but it's a *separate stream* so it can be redirected independently.
-
-The term **stdio** (short for "standard I/O") refers to all three together. It comes from the C standard library (`<stdio.h>`) and the concept carried into every Unix-derived language and OS.
-
-In Python these are exposed as `sys.stdin`, `sys.stdout`, and `sys.stderr` — ordinary file objects you can read from, write to, or replace entirely.
-
-### The three standard streams
-
-Every process inherits three open file descriptors from the OS:
-
-| Stream | fd | `sys` name | Default destination |
-|--------|----|------------|---------------------|
-| stdin  | 0  | `sys.stdin`  | keyboard / pipe in  |
-| stdout | 1  | `sys.stdout` | terminal / pipe out |
-| stderr | 2  | `sys.stderr` | terminal (unbuffered)|
-
-They are just file objects — you can redirect, replace, or wrap them like any other file.
-
-### Why logging defaults to stderr
-
-`StreamHandler()` with no argument writes to `sys.stderr`, not `sys.stdout`. The reason: logs are diagnostic output, not program output. Keeping them on separate streams lets you pipe or redirect one without polluting the other:
+With no argument, `StreamHandler()` uses `sys.stderr`. The separation matters
+for command-line tools:
 
 ```bash
-python app.py > output.txt        # stdout captured, logs still visible
-python app.py 2>/dev/null         # logs suppressed, stdout visible
-python app.py > out.txt 2> err.txt  # both captured separately
+python export.py > records.json        # stdout data goes to the file
+python export.py 2> export.log         # stderr logs go to another file
 ```
 
-If you send logs to stdout you lose that separation — structured output (JSON API responses piped into `jq`, for example) and log lines get mixed together.
+Container platforms often collect both streams, but may label or route them
+differently. Choose deliberately.
 
-### Python buffering modes
-
-Python buffers writes to speed up I/O. Three modes exist:
-
-| Mode | Behaviour | Default for |
-|------|-----------|-------------|
-| Unbuffered | Every write hits the OS immediately | `sys.stderr`, binary streams |
-| Line-buffered | Flush on each `\n` | `sys.stdout` when attached to a TTY |
-| Block-buffered | Accumulate up to ~8 KB then flush | `sys.stdout` when **not** attached to a TTY (e.g. inside a container or pipe) |
-
-The problem in containers: when stdout is not a TTY (it's a pipe to Docker's log driver), Python switches to block-buffered mode. A crash mid-block means those log lines never reach the log driver — they were still sitting in the buffer when the process died.
-
-### `PYTHONUNBUFFERED=1`
-
-Set this environment variable to force unbuffered stdout/stderr:
-
-```bash
-# Dockerfile
-ENV PYTHONUNBUFFERED=1
-
-# or at runtime
-PYTHONUNBUFFERED=1 python app.py
-```
-
-This is equivalent to running `python -u`. It ensures every log line (or `print`) is flushed immediately, so container logs are complete even on crash.
-
-> Always set `PYTHONUNBUFFERED=1` in any Docker/Kubernetes workload. The cost is negligible; the benefit is that you never lose the last lines before a crash.
-
----
-
-### `FileHandler` — write to a file
+### `FileHandler`
 
 ```python
-handler = logging.FileHandler("app.log", mode="a", encoding="utf-8")
-# mode="a" appends (default); mode="w" overwrites on each run
-```
-
-### `RotatingFileHandler` — roll over by size
-
-```python
-from logging.handlers import RotatingFileHandler
-
-handler = RotatingFileHandler(
+file_handler = logging.FileHandler(
     "app.log",
-    maxBytes=5_000_000,   # roll over at ~5 MB
-    backupCount=5          # keep app.log.1 … app.log.5
+    mode="a",
+    encoding="utf-8",
+)
+file_handler.setFormatter(formatter)
+```
+
+The parent directory must already exist. Relative paths are resolved from the
+process working directory, which may differ between a shell, systemd, tests, and
+a container.
+
+### Rotating handlers
+
+```python
+from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
+
+size_rotated = RotatingFileHandler(
+    "app.log",
+    maxBytes=5_000_000,
+    backupCount=5,
+    encoding="utf-8",
+)
+
+daily = TimedRotatingFileHandler(
+    "app.log",
+    when="midnight",
+    backupCount=7,
+    encoding="utf-8",
+    utc=True,
 )
 ```
 
-### `TimedRotatingFileHandler` — roll over by time
-
-```python
-from logging.handlers import TimedRotatingFileHandler
-
-handler = TimedRotatingFileHandler(
-    "app.log",
-    when="midnight",     # "S", "M", "H", "D", "midnight", "W0"–"W6"
-    backupCount=7         # keep 7 days of files
-)
-```
-
-### `NullHandler` — discard silently (library default)
-
-```python
-# In library code: prevents "No handlers could be found" warnings
-logging.getLogger("mylib").addHandler(logging.NullHandler())
-```
+Standard rotating file handlers are designed around one process owning the file.
+Multiple worker processes can race during rollover. Prefer platform collection,
+one file per process, an external rotation strategy compatible with the handler,
+or a dedicated log collector.
 
 ---
 
-## Async Gotcha: Logging Is Blocking
+## 5. Buffering: What Logging Actually Flushes
 
-Every handler call is **synchronous and blocking**. `FileHandler` does a blocking disk write; a network/HTTP handler does a blocking socket write. Inside an `async def` (FastAPI route, asyncio task), a slow handler stalls the event loop and blocks *every* concurrent request — `logger.info(...)` is not awaitable and offers no yield point.
+Python's standard streams can be line-buffered or block-buffered depending on
+whether they are interactive and how Python was started. `PYTHONUNBUFFERED=1`
+(or `python -u`) changes stdout/stderr buffering for direct writes and `print()`.
 
-Fix: hand records off to a background thread with `QueueHandler` + `QueueListener`. The logger only enqueues (near-instant); a dedicated listener thread runs the real handlers.
+However, `logging.StreamHandler.emit()` writes the formatted record and then
+calls `flush()`. Ordinary one-record-per-call logging is therefore already
+flushed by the handler. `PYTHONUNBUFFERED=1` is still a reasonable container
+setting when the process also uses `print()` or direct stream writes, but it is
+not the mechanism that makes `StreamHandler` flush each record.
+
+Nothing can flush Python buffers after `SIGKILL`, a node loss, or a runtime
+crash. Do not treat stream settings as a durability guarantee.
+
+---
+
+## 6. Handler Levels and Filters Route Records
+
+Set a permissive logger level, then let each handler select its threshold:
+
+```python
+import logging
+
+root = logging.getLogger()
+root.setLevel(logging.DEBUG)
+
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+
+errors = logging.FileHandler("errors.log", encoding="utf-8")
+errors.setLevel(logging.ERROR)
+
+root.addHandler(console)
+root.addHandler(errors)
+```
+
+Result:
+
+| Record | Console | `errors.log` |
+|--------|---------|--------------|
+| `DEBUG` | No | No |
+| `INFO` | Yes | No |
+| `ERROR` | Yes | Yes |
+
+A filter handles policy not expressible as a severity threshold:
+
+```python
+import logging
+
+
+class ExcludeHealthChecks(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return getattr(record, "path", None) != "/health"
+
+
+console.addFilter(ExcludeHealthChecks())
+```
+
+The filter returns truthy to keep the record and falsy to drop it for that
+handler. Filtering health checks at the console does not remove them from other
+handlers.
+
+---
+
+## 7. Async Applications Need a Queue for Slow Handlers
+
+Logging calls are synchronous. A slow file, socket, email, or HTTP handler inside
+`async def` blocks the event-loop thread.
+
+`QueueHandler` makes the request path enqueue records; `QueueListener` runs the
+slow handlers on a dedicated thread:
 
 ```python
 import logging
 import queue
 from logging.handlers import QueueHandler, QueueListener
 
-log_queue: queue.Queue = queue.Queue(-1)   # unbounded
 
-# The real handlers run in the listener thread, off the event loop
-file_handler = logging.FileHandler("app.log")
-file_handler.setFormatter(
-    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-)
+def start_logging_listener() -> QueueListener:
+    records: queue.SimpleQueue[logging.LogRecord] = queue.SimpleQueue()
 
-# Loggers only enqueue — non-blocking
-root = logging.getLogger()
-root.setLevel(logging.INFO)
-root.addHandler(QueueHandler(log_queue))
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    console.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
 
-listener = QueueListener(log_queue, file_handler, respect_handler_level=True)
-listener.start()   # start at boot; call listener.stop() on shutdown to flush
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    for existing in root.handlers[:]:
+        root.removeHandler(existing)
+        existing.close()
+    root.addHandler(QueueHandler(records))
+
+    listener = QueueListener(
+        records,
+        console,
+        respect_handler_level=True,
+    )
+    listener.start()
+    return listener
 ```
 
-This keeps the event loop responsive. `dictConfig` can wire this up declaratively via a `queue_handler` / `QueueListener` config (Python 3.12+ supports it natively in `dictConfig`).
-
----
-
-## Handler-Level Filtering
-
-Both loggers and handlers have their own level. A record must pass **both**:
+Own its lifecycle at application startup and shutdown:
 
 ```python
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.DEBUG)    # logger: let everything through
-
-file_handler = logging.FileHandler("errors.log")
-file_handler.setLevel(logging.ERROR)   # handler: only write ERROR and above
-
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.DEBUG) # handler: write everything
-
-root_logger.addHandler(file_handler)
-root_logger.addHandler(stream_handler)
+listener = start_logging_listener()
+try:
+    run_application()
+finally:
+    # stop() waits for the listener and processes records queued before its
+    # sentinel. Without it, the process can exit with records still pending.
+    listener.stop()
 ```
 
-Result: `DEBUG`/`INFO` go to console only; `ERROR`/`CRITICAL` go to both.
+The trade-off moves rather than disappears:
+
+- an unbounded queue avoids blocking producers but can consume unbounded memory
+  if output remains slower than log production;
+- a bounded queue needs an explicit overflow policy—block, sample, drop with a
+  metric, or use an emergency fallback;
+- `QueueHandler.prepare()` changes records to make them safely queueable,
+  including merging message arguments and removing some exception data; custom
+  downstream exception rendering may require a `QueueHandler` subclass;
+- process queues need different design from a same-process thread queue.
+
+Queue logging protects event-loop latency. It does not make delivery durable.
 
 ---
 
-## Multiple Handlers on One Logger
+## 8. A Complete Two-Destination Setup
 
 ```python
 import logging
+import sys
 
-def setup_logging():
+
+def configure_logging() -> None:
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
 
-    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    # This function owns root configuration and is called once at startup.
+    for existing in root.handlers[:]:
+        root.removeHandler(existing)
+        existing.close()
 
-    # Console — INFO and above
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
-    ch.setFormatter(fmt)
-    root.addHandler(ch)
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s"
+    )
 
-    # File — everything (DEBUG and above)
-    fh = logging.FileHandler("all.log")
-    fh.setLevel(logging.DEBUG)
-    fh.setFormatter(fmt)
-    root.addHandler(fh)
+    console = logging.StreamHandler(sys.stdout)
+    console.setLevel(logging.INFO)
+    console.setFormatter(formatter)
+
+    errors = logging.FileHandler("errors.log", encoding="utf-8")
+    errors.setLevel(logging.ERROR)
+    errors.setFormatter(formatter)
+
+    root.addHandler(console)
+    root.addHandler(errors)
 ```
+
+Clearing handlers is appropriate only because this application function
+explicitly owns root configuration. A library must never clear handlers from its
+host, and an application running under Uvicorn or another framework must decide
+whether to preserve or intentionally replace the framework's configuration.
+
+> **Mental model**: the handler is the operational boundary. It owns destination,
+> threshold, filtering, formatting, I/O latency, and shutdown behavior.
 
 ---
 
-## Custom Formatter (e.g. JSON)
-
-```python
-import logging
-import json
-
-class JSONFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        return json.dumps({
-            "ts": self.formatTime(record),
-            "level": record.levelname,
-            "logger": record.name,
-            "msg": record.getMessage(),
-        })
-
-handler = logging.StreamHandler()
-handler.setFormatter(JSONFormatter())
-```
-
-For production structured logging, prefer [structlog](../structlog_guide.md) — it builds on this model with a richer processor pipeline.
+**Next**: [Logging Configuration Patterns](04_patterns.md)

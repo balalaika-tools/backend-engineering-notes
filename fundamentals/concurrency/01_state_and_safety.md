@@ -1,10 +1,29 @@
 # State, Mutability, and Safety
 
-> The most important concurrency question is not "which primitive do I use?" It is "who can see this state, and who can mutate it at the same time?"
+> **Who this is for**: Developers who know Python objects and need to reason about which state can safely cross task, thread, process, or deployment boundaries. Read the [decision guide](00_decision_guide.md) first.
 
 ---
 
-## Vocabulary
+## 1. Start with Reachability and Ownership
+
+The most important concurrency question is not "which primitive do I use?" It is:
+
+> **Who can reach this state, who may mutate it, and which scheduler can run those owners?**
+
+Python variables are names bound to objects. Mutability belongs to the object, not the variable name:
+
+```python
+items: list[int] = []
+alias = items
+alias.append(1)
+assert items == [1]
+```
+
+If two concurrent owners can reach `items`, both names lead to the same mutable object. Type annotations and local variable syntax do not make it private.
+
+---
+
+## 2. Vocabulary
 
 | Term | Meaning |
 |------|---------|
@@ -13,22 +32,18 @@
 | Shared | More than one task, thread, process, request, or module can reach the same object. |
 | Thread-safe | Multiple OS threads can use it concurrently without corrupting state or breaking invariants. |
 | Async-safe | It does not corrupt logical per-task state and does not block the event loop. |
-| Process-safe | It can be passed or shared across processes using serialization, shared memory, IPC, or an external store. |
+| Process-safe | Multiple processes can use the state through a defined serialization, IPC, shared-memory, or external coordination protocol without breaking invariants. |
 
-Python variables are names bound to objects. Mutability belongs to the object, not the variable name.
+Safety has at least two axes:
 
-```python
-x = []      # x is a name, [] is a mutable list object
-y = x       # y points at the same list
-y.append(1)
-print(x)   # [1]
-```
+1. **Memory correctness** — the runtime and object do not become corrupted.
+2. **Application correctness** — multi-step business invariants remain true.
 
-If two pieces of code can reach the same mutable object, you have shared mutable state.
+A container can protect its internal memory and still be unsafe for a check-then-act sequence. "Thread-safe dict operation" does not make "read balance, validate, then update balance" atomic.
 
 ---
 
-## The matrix
+## 3. State-Sharing Matrix
 
 | State location or object | Mutable? | Shared across async tasks? | Shared across threads? | Shared across processes? | Safe by default? | What to do |
 |--------------------------|----------|----------------------------|------------------------|--------------------------|------------------|------------|
@@ -41,7 +56,7 @@ If two pieces of code can reach the same mutable object, you have shared mutable
 | Mutable default argument | Yes | Yes through the function object | Yes through the function object | Per process | No | Use `None` then create a new object inside. |
 | Closure over mutable object | Yes | Yes if function is shared | Yes if function is shared | Per process | No | Same risk as a global, just hidden. |
 | `threading.local()` | Yes | Broken for async tasks on same thread | Isolated per thread | No | Thread-only | Use for thread-local data, not request state in async servers. |
-| `contextvars.ContextVar` | The value can be mutable | Isolated by context/task | Not automatically universal | No | Good for request context | Store small immutable IDs or request metadata. |
+| `contextvars.ContextVar` | The value can be mutable | Binding is isolated by context/task | Propagation depends on API and runtime settings | No | Good for request metadata | Store small immutable IDs; a copied binding may still point to one mutable object. |
 | `asyncio.Lock`, `Semaphore`, `Queue` | Internal state | Yes, within one event loop | Not thread-safe | No | Async-safe only | Use among tasks on the same event loop. |
 | `threading.Lock`, `RLock`, `Event` | Internal state | Blocks event loop if used directly | Yes | No | Thread-safe | Use in threaded sync code; avoid holding across `await`. |
 | `queue.Queue` | Yes | Blocks event loop if used directly | Yes | No | Thread-safe | Use between threads. Use `asyncio.Queue` between tasks. |
@@ -53,7 +68,7 @@ If two pieces of code can reach the same mutable object, you have shared mutable
 
 ---
 
-## Async safety is not thread safety
+## 4. Async Safety Is Not Thread Safety
 
 Async tasks usually run on one thread, so they do not execute Python bytecode at exactly the same instant on the default event loop. They can still interleave at every `await`.
 
@@ -83,11 +98,13 @@ async def increment():
         counter += 1
 ```
 
-Do not use `threading.Lock` as your default async lock. It blocks the event loop if acquisition waits, and holding it across `await` can create painful deadlocks.
+An `asyncio.Lock` may be held across `await` when the whole async operation is the invariant it protects. Keep that region short and do not perform unrelated or unbounded I/O while holding it.
+
+Do not use `threading.Lock` as your default async lock. It blocks the event loop if acquisition waits, and it does not model ownership between tasks. Asyncio primitives are not thread-safe and are intended for tasks on one event loop.
 
 ---
 
-## Thread safety is not async safety
+## 5. Match the Primitive to the Scheduler
 
 Thread-safe objects often use blocking locks. Blocking is fine in synchronous threaded code and dangerous on an event loop.
 
@@ -109,9 +126,22 @@ Use the matching primitive for the scheduler:
 | Processes | `multiprocessing.Queue`, `ProcessPoolExecutor`, external stores |
 | Pods or machines | Redis, database locks, message queues, object storage |
 
+When a thread must submit work to an event loop, do not touch asyncio objects directly:
+
+```python
+import asyncio
+
+# From another OS thread:
+loop.call_soon_threadsafe(callback, argument)
+future = asyncio.run_coroutine_threadsafe(coroutine(), loop)
+result = future.result(timeout=5)
+```
+
+`run_coroutine_threadsafe()` returns a `concurrent.futures.Future`; waiting on it from the event-loop thread would deadlock. It is a cross-thread bridge for synchronous thread code.
+
 ---
 
-## Safe sharing patterns
+## 6. Safe Sharing Patterns
 
 ### Prefer immutable input and return values
 
@@ -130,6 +160,8 @@ Immutable messages are easy to pass to tasks, threads, and processes. If a worke
 ### Use ownership instead of shared mutation
 
 ```python
+import asyncio
+
 async def worker(q: asyncio.Queue[str]):
     while True:
         url = await q.get()
@@ -173,7 +205,7 @@ Processes do not share Python objects by default. If multiple workers need the s
 
 ---
 
-## Context variables
+## 7. Separate Context Propagation from Resource Ownership
 
 `ContextVar` is for logical execution context: request ID, tenant ID, trace ID, current user, or logging context. It is not a general shared-state container.
 
@@ -198,11 +230,23 @@ request_id_var.set("req-123")
 tenant_id_var.set("tenant-a")
 ```
 
+Do not infer that a propagated object is safe to use concurrently. For example, two child tasks can inherit bindings to the same database session:
+
+```python
+session = session_var.get()
+
+async with asyncio.TaskGroup() as group:
+    group.create_task(load_profile(session))
+    group.create_task(load_orders(session))
+```
+
+The bindings are context-local, but `session` is still one mutable object. If the session does not document concurrent use, give each operation a separate session or run the operations sequentially. The same rule applies to cursors, transactions, streams, and stateful clients.
+
 See [async/03_contextvars.md](async/03_contextvars.md) for propagation rules.
 
 ---
 
-## The GIL does not make your code correct
+## 8. The GIL Does Not Make Code Correct
 
 On the default CPython build, the GIL prevents multiple threads from executing Python bytecode at the exact same time. It does not make compound operations atomic at the level your business logic cares about.
 
@@ -219,7 +263,7 @@ Free-threaded CPython builds make this even more important. Threads can execute 
 
 ---
 
-## Process boundaries
+## 9. Process and Deployment Boundaries
 
 Each process has its own Python interpreter and memory space. A module global is not a cluster-wide variable. It is one variable per process.
 
@@ -233,7 +277,7 @@ If you run four Uvicorn/Gunicorn workers, you have four in-memory caches, four s
 
 ---
 
-## Design checklist
+## 10. Design Checklist
 
 - Is this object mutable?
 - Can more than one task/thread/process reach it?
@@ -256,3 +300,7 @@ If you run four Uvicorn/Gunicorn workers, you have four in-memory caches, four s
 - [`multiprocessing`](https://docs.python.org/3/library/multiprocessing.html)
 - [`contextvars`](https://docs.python.org/3/library/contextvars.html)
 - [Python free-threading HOWTO](https://docs.python.org/3/howto/free-threading-python.html)
+
+---
+
+**Next**: [Subinterpreters and Free-Threaded CPython](02_alternative_runtimes.md)

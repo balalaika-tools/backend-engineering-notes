@@ -1,688 +1,384 @@
-# ContextVars — Request-Scoped State in Async Python
+# Context Variables and Request-Scoped State
 
-In async Python, you often need **per-request state** (request ID, current user, DB session) that flows through the entire call stack — without passing it as an argument to every function.
-
-Think of it as:
-
-> "An invisible argument that every function in the call chain can read, scoped to the current request or task."
-
-The `contextvars` module (stdlib since Python 3.7) solves this cleanly for sync, threaded, **and** async code.
+> **Who this is for**: Python backend developers who need request IDs, tenant IDs, or trace metadata to follow an async call chain without becoming shared globals. Assumes you understand [tasks and task creation](01_event_loop_and_tasks.md).
 
 ---
 
-## The Problem
+## 1. The Scope Problem
 
-### Global variables are shared across all requests
-
-```python
-current_user = None  # module-level global
-
-async def handle_request(user: str):
-    global current_user
-    current_user = user
-    await asyncio.sleep(0.1)          # other tasks run here
-    print(f"Handling: {current_user}") # ❌ may print wrong user
-```
-
-Two concurrent requests overwrite each other's `current_user`. Globals are **shared across all coroutines** — in an async server handling hundreds of concurrent requests, this is a data race waiting to happen.
-
-### `threading.local()` works for threads but breaks with async
+A module global has process-wide reach. Concurrent requests can overwrite it:
 
 ```python
-import threading
 import asyncio
 
-_local = threading.local()
+current_request_id = "unset"
 
-async def handle_request(uid: str):
-    _local.user_id = uid
-    await asyncio.sleep(0.1)
-    # ❌ Another coroutine on the SAME thread may have overwritten this
-    print(f"Task {uid} sees: {_local.user_id}")
+async def handle(request_id: str) -> None:
+    global current_request_id
+    current_request_id = request_id
+    await asyncio.sleep(0)
+    print(request_id, "observed", current_request_id)
 
-async def main():
-    # Both tasks share the same thread → same threading.local() storage
-    async with asyncio.TaskGroup() as tg:
-        tg.create_task(handle_request("alice"))
-        tg.create_task(handle_request("bob"))
+async def main() -> None:
+    async with asyncio.TaskGroup() as group:
+        group.create_task(handle("req-a"))
+        group.create_task(handle("req-b"))
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-Output (non-deterministic):
+Both tasks use one global binding, so at least one can observe the other request's value.
 
-```
-Task alice sees: bob   ← wrong!
-Task bob sees: bob
-```
+`threading.local()` does not solve this for async code. It separates values by OS thread, while many asyncio tasks normally share the event-loop thread.
 
-Why? `asyncio` runs many coroutines on **one thread**. `threading.local()` is per-thread, so all coroutines share the same slot.
+A **context variable** stores a binding in the current logical execution context. Asyncio restores the correct context whenever it resumes a task.
 
-> **The core issue:** We need state scoped to a **logical execution context** (a request, a task), not to a physical thread or process.
+> **Key insight**: `ContextVar` is for ambient metadata scoped to an execution context. It is not shared storage, dependency injection, or a resource-lifetime manager.
 
 ---
 
-## The `contextvars` Module (Python 3.7+)
+## 2. Declare, Set, Read, and Reset
 
-The stdlib `contextvars` module provides these building blocks:
-
-| API | Purpose |
-|-----|---------|
-| `ContextVar(name, default=...)` | Declare a context variable |
-| `var.set(value)` | Set value in the current context, returns a `Token` |
-| `var.get(default=...)` | Get current value (or default) |
-| `var.reset(token)` | Undo a `.set()` using the token it returned |
-| `token.old_value` | The value before the `.set()` that created this token |
-| `contextvars.copy_context()` | Snapshot the entire current context into a `Context` object |
-| `context.run(fn, *args)` | Run a function inside a specific context snapshot |
-
-How it works under the hood:
-
-* Every **asyncio Task** gets its own `Context` copy when it is created.
-* When a Task runs, its `Context` is the "active" context.
-* `.set()` only modifies the **current Task's context** — other Tasks are unaffected.
-* `copy_context()` takes a snapshot you can pass to threads or sub-tasks.
-
----
-
-## Basic Usage (Sync)
-
-### Creating and using a ContextVar
+Declare each `ContextVar` once at module scope:
 
 ```python
+# request_context.py
 from contextvars import ContextVar
 
-request_id: ContextVar[str] = ContextVar('request_id', default='no-request')
-
-# set and get
-token = request_id.set('abc-123')
-print(request_id.get())  # abc-123
-
-# reset
-request_id.reset(token)
-print(request_id.get())  # no-request
+request_id_var: ContextVar[str] = ContextVar(
+    "request_id",
+    default="no-request",
+)
 ```
 
-### Using defaults
+Set it at the boundary and reset it with the returned token:
 
 ```python
-request_id: ContextVar[str] = ContextVar('request_id', default='unknown')
+from request_context import request_id_var
 
-print(request_id.get())          # unknown (no .set() called yet)
-
-token = request_id.set('req-42')
-print(request_id.get())          # req-42
-
-request_id.reset(token)
-print(request_id.get())          # unknown (back to default)
-```
-
-### Token-based reset in a context manager
-
-A common pattern — wrap set/reset so it always cleans up:
-
-```python
-from contextvars import ContextVar, Token
-from contextlib import contextmanager
-
-request_id: ContextVar[str] = ContextVar('request_id', default='N/A')
-
-@contextmanager
-def request_scope(rid: str):
-    token: Token = request_id.set(rid)
+async def handle_request(request_id: str) -> None:
+    token = request_id_var.set(request_id)
     try:
-        yield
+        await dispatch_request()
     finally:
-        request_id.reset(token)
+        request_id_var.reset(token)
 ```
 
-Usage:
+Reset restores the value that existed before this particular `set()`. It is safer than assigning a guessed default because scopes can nest:
 
 ```python
-with request_scope("req-123"):
-    print(request_id.get())   # req-123
-    do_something()             # can also read req-123
-
-print(request_id.get())       # N/A (reverted)
+outer_token = request_id_var.set("outer")
+try:
+    inner_token = request_id_var.set("inner")
+    try:
+        assert request_id_var.get() == "inner"
+    finally:
+        request_id_var.reset(inner_token)
+    assert request_id_var.get() == "outer"
+finally:
+    request_id_var.reset(outer_token)
 ```
+
+In Python 3.14+, the token is also a context manager:
+
+```python
+with request_id_var.set("req-123"):
+    await dispatch_request()
+```
+
+Use the explicit token pattern when supporting Python 3.11–3.13.
+
+For required context, omit the default so an unbound `.get()` raises `LookupError`. For diagnostics such as logging, a visible sentinel default is often more useful than failing the request.
 
 ---
 
-## ContextVars in Async Code
+## 3. Task Creation Copies Bindings
 
-Key insight: **`asyncio.create_task()` copies the current context into the new task.** Each task gets an isolated snapshot.
-
-```python
-import asyncio
-from contextvars import ContextVar
-
-user_id: ContextVar[str] = ContextVar('user_id')
-
-async def handle_request(uid: str):
-    user_id.set(uid)
-    await asyncio.sleep(0.1)  # simulate work — other tasks run here
-    # Still sees its own value, even though other tasks ran concurrently
-    print(f"Task {uid} sees: {user_id.get()}")
-
-async def main():
-    # These run concurrently but each sees its own user_id
-    async with asyncio.TaskGroup() as tg:
-        tg.create_task(handle_request("alice"))
-        tg.create_task(handle_request("bob"))
-
-asyncio.run(main())
-```
-
-Output (always correct):
-
-```
-Task alice sees: alice ✅
-Task bob sees: bob     ✅
-```
-
-### Why does this work?
-
-1. `main()` calls `tg.create_task(handle_request("alice"))`
-2. `create_task()` **snapshots** the current context and attaches it to the new `Task`
-3. When the task runs, it operates on its **own copy** of the context
-4. `user_id.set(uid)` modifies only **that task's** copy
-5. After `await`, the event loop restores the correct context before resuming the coroutine
-
-This is built into the event loop — no opt-in required.
-
-### Contrast: tasks don't leak into each other or into `main`
+Asyncio tasks capture a shallow copy of the current context when the task is created:
 
 ```python
 import asyncio
 from contextvars import ContextVar
 
-request_id: ContextVar[str] = ContextVar('request_id', default='N/A')
+request_id: ContextVar[str] = ContextVar("request_id", default="unset")
 
-async def worker(name: str):
-    print(f"{name} sees: {request_id.get()}")
-    request_id.set(f"modified-by-{name}")
-    print(f"{name} changed to: {request_id.get()}")
+async def report(name: str) -> None:
+    await asyncio.sleep(0)
+    print(name, request_id.get())
 
-async def main():
-    request_id.set("original")
+async def main() -> None:
+    request_id.set("before")
+    first = asyncio.create_task(report("first"))
 
-    task1 = asyncio.create_task(worker("task1"))
-    task2 = asyncio.create_task(worker("task2"))
-    await asyncio.gather(task1, task2)
+    request_id.set("after")
+    second = asyncio.create_task(report("second"))
 
-    print(f"main still sees: {request_id.get()}")
+    await first
+    await second
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 Output:
 
-```
-task1 sees: original
-task1 changed to: modified-by-task1
-task2 sees: original
-task2 changed to: modified-by-task2
-main still sees: original
+```text
+first before
+second after
 ```
 
-What happened:
+The important moment is task **creation**, not the first time the task gets CPU time. Later changes in the parent do not rewrite the child's binding, and changes in the child do not rewrite the parent's binding.
 
-1. `main` sets the value to `"original"`.
-2. Each task gets a **copy** of the context at creation time — both see `"original"`.
-3. Each task modifies its own copy — the changes are isolated.
-4. `main`'s context is unchanged.
+Normal `await` does not create a task:
+
+```python
+async def parent() -> None:
+    request_id.set("req-123")
+    await child()  # Same task and same context.
+```
+
+`TaskGroup.create_task()` follows the same copy-at-creation rule. Its optional `context=` argument can supply an explicit `contextvars.Context` when isolation must be controlled manually.
 
 ---
 
-## ContextVars in Threaded Code
+## 4. A Context Copy Is Shallow
 
-Context does **not** reliably auto-propagate to threads you spawn manually. On normal builds, a new raw thread starts with an empty/default context unless you explicitly pass or run a copied context. Modern Python also exposes thread context controls, but production code should still make propagation explicit where request context matters.
-
-### The problem
+Context isolation applies to the **binding**, not to the internals of the bound value:
 
 ```python
-import threading
 from contextvars import ContextVar
 
-request_id: ContextVar[str] = ContextVar('request_id', default='none')
+tags_var: ContextVar[list[str]] = ContextVar("tags")
 
-request_id.set('abc-123')
+shared_tags: list[str] = []
+tags_var.set(shared_tags)
 
-def worker():
-    # This usually sees 'none' (the default), not 'abc-123'
-    print(f"Worker sees: {request_id.get()}")
-
-t = threading.Thread(target=worker)
-t.start()
-t.join()
+# A child task receives another binding to the same list object.
 ```
 
-### The solution: `copy_context().run()`
+If parent and child contexts both point to `shared_tags`, either can mutate the same list. Prefer small immutable values:
 
 ```python
-import contextvars
-import threading
-from contextvars import ContextVar
-
-request_id: ContextVar[str] = ContextVar('request_id', default='none')
-
-request_id.set('abc-123')
-
-ctx = contextvars.copy_context()
-
-def worker():
-    print(f"Worker sees: {request_id.get()}")  # abc-123
-
-t = threading.Thread(target=ctx.run, args=(worker,))
-t.start()
-t.join()
+request_id_var: ContextVar[str]
+tenant_id_var: ContextVar[str]
+trace_flags_var: ContextVar[frozenset[str]]
 ```
 
-### Prefer `asyncio.to_thread()` from async code
+This is especially important for async database sessions. A child task inherits the binding to the same session object, not a cloned session. Most transaction/session objects have one mutable state machine and must not be used concurrently.
 
-When you call a sync function from async code and want context propagation, prefer `asyncio.to_thread()`. The Python docs explicitly state that it propagates the current `contextvars.Context` to the worker thread:
+```python
+# ❌ Context propagation makes this easy to reach, not safe to share.
+session = session_var.get()
+async with asyncio.TaskGroup() as group:
+    group.create_task(load_profile(session))
+    group.create_task(load_orders(session))
+```
+
+Use explicit parameters and separate sessions/transactions when operations truly run concurrently. A `ContextVar` can hide a dependency; it cannot change that dependency's ownership rules.
+
+---
+
+## 5. Propagation Across Boundaries
+
+| Boundary | What happens | What to do |
+|----------|--------------|------------|
+| Normal function call or `await` in one task | Same current context | Nothing special |
+| `asyncio.create_task()` / `TaskGroup.create_task()` | Shallow context copy at creation | Set metadata before creating the task |
+| `asyncio.to_thread()` | Current context is propagated to the worker call | Preferred async-to-thread bridge |
+| `loop.run_in_executor()` | Do not rely on automatic propagation | Wrap a fresh `copy_context().run` |
+| Raw `threading.Thread` | Defaults vary by Python build and flags in 3.14+ | Pass/copy context explicitly |
+| Process pool, subprocess, broker worker | No useful automatic propagation | Serialize the required values |
+
+`asyncio.to_thread()` is the simplest thread bridge:
 
 ```python
 import asyncio
-from contextvars import ContextVar
 
-request_id: ContextVar[str] = ContextVar('request_id', default='none')
+def blocking_sdk_call() -> None:
+    logger.info("calling SDK", extra={"request_id": request_id_var.get()})
 
-def sync_db_query():
-    rid = request_id.get()
-    print(f"DB query for request: {rid}")
-
-async def handle_request():
-    request_id.set('abc-123')
-    await asyncio.to_thread(sync_db_query)
+async def call_sdk() -> None:
+    await asyncio.to_thread(blocking_sdk_call)
 ```
 
-### Custom executors and `run_in_executor()`
-
-`loop.run_in_executor()` is an executor dispatch API. Do not rely on it to propagate context for you. If you use a raw `ThreadPoolExecutor`, a custom executor, or `loop.run_in_executor(...)`, copy context yourself:
+For `run_in_executor()`, copy context for each submission:
 
 ```python
-from contextvars import ContextVar, copy_context
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 
-request_id: ContextVar[str] = ContextVar('request_id', default='N/A')
+pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="legacy-sdk")
 
-def blocking_work():
-    print(f"Thread sees: {request_id.get()}")
-
-def main():
-    request_id.set("req-xyz")
-    ctx = copy_context()
-
-    with ThreadPoolExecutor() as pool:
-        # Run inside the copied context.
-        future = pool.submit(ctx.run, blocking_work)
-        future.result()  # Thread sees: req-xyz
-
-main()
+async def call_sdk_with_pool() -> None:
+    loop = asyncio.get_running_loop()
+    context = copy_context()
+    await loop.run_in_executor(pool, context.run, blocking_sdk_call)
 ```
 
-The same `ctx.run(...)` wrapping works when you hand a custom executor to `loop.run_in_executor(...)`:
+Do not run the same `Context` concurrently in multiple threads. A context cannot be entered twice at the same time. Create a new `copy_context()` for every independently submitted call.
+
+For raw threads on Python 3.11–3.13:
 
 ```python
-async def handle_request_with_pool(pool):
-    request_id.set("req-xyz")
-    ctx = copy_context()
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(pool, ctx.run, blocking_work)
+import threading
+from contextvars import copy_context
+
+context = copy_context()
+thread = threading.Thread(
+    target=context.run,
+    args=(blocking_sdk_call,),
+    name="legacy-sdk",
+)
+thread.start()
+thread.join()
 ```
+
+Python 3.14 adds `Thread(..., context=copy_context())`. Its default inheritance behavior differs between regular and free-threaded builds, so passing the context explicitly is the portable choice when correctness depends on propagation.
 
 ---
 
-## Practical Patterns
+## 6. Cross-Process Context Is Message Data
 
-### Pattern 1: Request ID Middleware (FastAPI)
-
-Set a request ID in middleware, read it anywhere in the request handler chain — no need to pass it through every function.
+A process has a separate interpreter and context stack. Job workers may also run much later, after the originating request is gone. Pass only the values the job needs:
 
 ```python
-# context.py
-from contextvars import ContextVar
+from dataclasses import dataclass
 
-request_id_var: ContextVar[str] = ContextVar('request_id', default='')
+@dataclass(frozen=True)
+class RebuildIndexJob:
+    tenant_id: str
+    correlation_id: str
+    index_name: str
+
+def enqueue_rebuild(index_name: str) -> None:
+    job = RebuildIndexJob(
+        tenant_id=tenant_id_var.get(),
+        correlation_id=request_id_var.get(),
+        index_name=index_name,
+    )
+    job_broker.send(job)
 ```
 
+At the worker boundary, bind metadata only for the duration of the job:
+
 ```python
-# middleware.py
+def handle_rebuild(job: RebuildIndexJob) -> None:
+    tenant_token = tenant_id_var.set(job.tenant_id)
+    request_token = request_id_var.set(job.correlation_id)
+    try:
+        rebuild_index(job.index_name)
+    finally:
+        request_id_var.reset(request_token)
+        tenant_id_var.reset(tenant_token)
+```
+
+Do not serialize secrets, authorization objects, or a whole request context for convenience. Define an allowlist of low-sensitivity tracing and tenancy fields, validate them at the consumer, and use the worker's own authorization rules.
+
+---
+
+## 7. FastAPI Request-ID Boundary
+
+Set request metadata at the outer request boundary so every downstream call sees it:
+
+```python
+import re
 import uuid
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from context import request_id_var
 
-class RequestIDMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        rid = request.headers.get('X-Request-ID', str(uuid.uuid4()))
-        token = request_id_var.set(rid)
-        try:
-            response = await call_next(request)
-            response.headers['X-Request-ID'] = rid
-            return response
-        finally:
-            request_id_var.reset(token)
-```
+from fastapi import FastAPI, Request, Response
 
-```python
-# main.py
-from fastapi import FastAPI
-from middleware import RequestIDMiddleware
-from context import request_id_var
+from request_context import request_id_var
 
 app = FastAPI()
-app.add_middleware(RequestIDMiddleware)
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
-@app.get("/items")
-async def get_items():
-    return {"request_id": request_id_var.get(), "items": []}
-```
+def choose_request_id(candidate: str | None) -> str:
+    if candidate is not None and REQUEST_ID_PATTERN.fullmatch(candidate):
+        return candidate
+    return uuid.uuid4().hex
 
-```python
-# services/item_service.py — deep in the call stack
-from context import request_id_var
-
-async def fetch_items():
-    req_id = request_id_var.get()  # ✅ Works! No argument passing needed.
-    print(f"[{req_id}] Fetching items from DB...")
-    return []
-```
-
-### Pattern 2: Structured Logging with `structlog`
-
-`structlog` has first-class `contextvars` support. Bind request-scoped data once, and every subsequent log call includes it automatically:
-
-```python
-import structlog
-
-# In your middleware / request handler — clean slate for this request:
-structlog.contextvars.clear_contextvars()
-structlog.contextvars.bind_contextvars(
-    request_id=rid,
-    user_id=uid,
-)
-
-# Anywhere deeper in the call stack:
-logger = structlog.get_logger()
-logger.info("order_created", order_id=order.id)
-# Output includes request_id and user_id automatically:
-# {"event": "order_created", "order_id": 42, "request_id": "abc-123", "user_id": 7}
-```
-
-Under the hood, `structlog.contextvars` uses a `ContextVar[dict]` to store the bound key-value pairs. Since each asyncio task has its own context, bound values are isolated per-request.
-
-You can also write a custom structlog processor that reads from your own `ContextVar`:
-
-```python
-from contextvars import ContextVar
-import structlog
-
-request_id_var: ContextVar[str] = ContextVar("request_id", default="N/A")
-
-def add_request_id(logger, method_name, event_dict):
-    """structlog processor that injects request_id from ContextVar."""
-    event_dict["request_id"] = request_id_var.get()
-    return event_dict
-
-structlog.configure(
-    processors=[
-        add_request_id,
-        structlog.dev.ConsoleRenderer(),
-    ]
-)
-```
-
-### Pattern 3: Database Session Context
-
-Useful in complex codebases where passing the session through every function is impractical:
-
-```python
-from contextvars import ContextVar
-from sqlalchemy.ext.asyncio import AsyncSession
-
-db_session_var: ContextVar[AsyncSession] = ContextVar('db_session')
-
-# Middleware sets it per-request
-async def db_session_middleware(request, call_next):
-    async with async_session_maker() as session:
-        token = db_session_var.set(session)
-        try:
-            response = await call_next(request)
-            await session.commit()
-            return response
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            db_session_var.reset(token)
-
-# Deep in your code — no session argument needed
-async def get_user_by_id(user_id: int):
-    session = db_session_var.get()
-    result = await session.execute(select(User).where(User.id == user_id))
-    return result.scalar_one_or_none()
-```
-
-> **Caveat:** Explicit dependency injection (e.g., FastAPI's `Depends()`) is usually preferred over implicit contextvar-based sessions. Use this pattern when DI becomes impractical (deeply nested calls, third-party code, etc.).
-
----
-
-## ContextVars and Background Tasks
-
-### FastAPI `BackgroundTasks` — context IS propagated
-
-Background tasks run in the same event loop (or threadpool). Starlette copies the context:
-
-```python
-from fastapi import BackgroundTasks
-from contextvars import ContextVar, copy_context
-
-request_id_var: ContextVar[str] = ContextVar('request_id', default='N/A')
-
-def send_confirmation_email(to: str):
-    rid = request_id_var.get()
-    print(f"[{rid}] Sending email to {to}")
-
-@app.post("/register")
-async def register(bg_tasks: BackgroundTasks):
-    request_id_var.set("req-register-42")
-
-    # To be safe, capture context explicitly:
-    ctx = copy_context()
-    bg_tasks.add_task(ctx.run, send_confirmation_email, "user@example.com")
-    return {"status": "ok"}
-```
-
-### Celery / Dramatiq workers — context is NOT propagated
-
-Task queue workers run in **separate processes**. ContextVars live in process memory — they don't serialize across a message queue.
-
-**The pattern: serialize context -> send as message header -> restore in worker**
-
-```python
-# === Producer side (FastAPI) ===
-from context import request_id_var
-
-def enqueue_task(order_id: int):
-    rid = request_id_var.get()
-    # Pass context as message headers
-    process_order.apply_async(
-        args=[order_id],
-        headers={"request_id": rid},
-    )
-```
-
-```python
-# === Consumer side (Celery worker) ===
-from celery.signals import task_prerun
-from context import request_id_var
-
-@task_prerun.connect
-def restore_context(sender, headers=None, **kwargs):
-    """Celery signal: runs before every task."""
-    if headers and "request_id" in headers:
-        request_id_var.set(headers["request_id"])
-
-@app.task
-def process_order(order_id: int):
-    rid = request_id_var.get()  # ✅ restored from message header
-    print(f"[{rid}] Processing order {order_id}")
-```
-
-Alternative (simpler, works with Dramatiq too): just pass the values as regular task arguments:
-
-```python
-@dramatiq.actor
-def process_order(order_id: int, request_id: str):
+@app.middleware("http")
+async def bind_request_id(request: Request, call_next) -> Response:
+    request_id = choose_request_id(request.headers.get("x-request-id"))
     token = request_id_var.set(request_id)
     try:
-        print(f"[{request_id}] Processing order {order_id}")
+        response = await call_next(request)
+        response.headers["x-request-id"] = request_id
+        return response
     finally:
         request_id_var.reset(token)
-
-# Dispatching:
-req_id = request_id_var.get()
-process_order.send(order_id=42, request_id=req_id)
 ```
 
-> **Rule of thumb:** If the work crosses a process boundary (Celery, Dramatiq, subprocess), you must **serialize and pass** the context values explicitly. ContextVars don't magically cross process boundaries.
+Validation prevents an attacker-controlled header from injecting arbitrary characters or unbounded data into logs. In a zero-trust deployment, generate your own public request ID and store an upstream value separately.
+
+An in-process child task copies the request context, but that does not extend the lifetime of request-scoped resources. After the response, middleware may close database sessions, streams, and dependency scopes. Pass durable identifiers to longer-lived work and reacquire resources inside that work.
 
 ---
 
-## Comparison Table
+## 8. Logging Without Hidden Business Dependencies
 
-| Mechanism | Sync threads | Async tasks | New threads (manual) | Subprocess / worker |
-|-----------|-------------|-------------|----------------------|---------------------|
-| Global variable | Shared (broken) | Shared (broken) | Shared (broken) | Isolated |
-| `threading.local()` | Isolated | **Shared (broken)** | Isolated | N/A |
-| `ContextVar` | Per context | **Isolated** | Explicit propagation recommended | Not propagated |
+Request and trace IDs are good ambient context because they annotate almost every log line and do not decide business behavior:
 
-For manually created threads, use `copy_context().run(...)` or the modern `threading.Thread(..., context=...)` API where available. For async-to-thread offloading, `asyncio.to_thread()` propagates context. For `run_in_executor()` and custom executors, wrap the callable with `copy_context().run(...)`.
+```python
+import logging
+
+class RequestContextFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = request_id_var.get()
+        return True
+```
+
+Configure the formatter to include `%(request_id)s`, or bind the value through a structured-logging processor. See the [Structured Logging guide](../../core_concepts/structlog_guide.md) for a complete logging pipeline.
+
+Prefer explicit arguments for values that change results:
+
+```python
+# ✅ The authorization dependency is visible and testable.
+async def cancel_order(order_id: int, principal: Principal) -> None:
+    ...
+```
+
+Using `current_user_var.get()` deep inside domain code hides authorization dependencies and makes tests order-sensitive. A practical split is:
+
+- Ambient diagnostics: request ID, trace ID, logging tags.
+- Explicit business inputs: user/principal, database session, money, feature decisions.
 
 ---
 
-## Common Mistakes
+## 9. Failure Modes and Tests
 
-### Mistake 1: Setting at module level
+| Failure | Why it happens | Fix |
+|---------|----------------|-----|
+| Request metadata leaks into later work | Boundary set a value without resetting it | Reset the returned token in `finally` |
+| Child sees an older value | Task was created before the parent changed the binding | Set values before task creation |
+| Two tasks mutate the same value | The copied binding points to one mutable object | Store immutable metadata |
+| Executor logs have no request ID | `run_in_executor()` did not propagate context | Submit `copy_context().run` |
+| Process worker has no trace fields | Process boundaries do not copy context | Put allowlisted fields in the message |
+| Background work uses a closed session | Context copied the object, not its lifetime | Pass IDs and acquire a fresh resource |
 
-```python
-# This runs once at import time and affects the current import context.
-request_id: ContextVar[str] = ContextVar('request_id')
-request_id.set("oops")  # set in module scope = shared default for main context
-```
-
-**Declare** the `ContextVar` at module level (that's fine and expected). But **`.set()`** should happen inside a request handler, middleware, or task — not at import time.
-
-### Mistake 2: Forgetting to reset (token pattern)
-
-```python
-# If do_work() raises, the value leaks into subsequent code in the same context.
-request_id.set("abc-123")
-do_work()
-```
+Keep test bindings scoped:
 
 ```python
-# Always reset in a finally block.
-token = request_id.set("abc-123")
-try:
-    do_work()
-finally:
-    request_id.reset(token)
+def test_render_log_record() -> None:
+    token = request_id_var.set("test-request")
+    try:
+        assert render_log_record()["request_id"] == "test-request"
+    finally:
+        request_id_var.reset(token)
 ```
 
-In practice, asyncio tasks are short-lived (one per request), so leaking within a task is rarely a problem. The token pattern matters most in **middleware** and **reusable utilities** that shouldn't permanently modify the caller's context.
-
-### Mistake 3: Assuming propagation to sub-processes
-
-```python
-# Celery/Dramatiq workers are separate processes. Context does not cross.
-request_id_var.set("abc-123")
-my_celery_task.delay()  # worker has no idea about request_id_var
-```
-
-### Mistake 4: Not copying context when spawning threads manually
-
-```python
-# Thread usually gets empty/default context.
-threading.Thread(target=worker).start()
-
-# Copy context explicitly.
-ctx = contextvars.copy_context()
-threading.Thread(target=ctx.run, args=(worker,)).start()
-```
-
----
-
-## Mental Model
-
-> **ContextVars = "async-safe thread-locals".**
->
-> * Each `asyncio` Task automatically gets its own copy.
-> * For threads, make propagation explicit with `copy_context().run()` or `asyncio.to_thread()`.
-> * For processes, you serialize and restore manually.
-
-```text
-Request comes in
-  -> Middleware sets ContextVar
-     -> Handler reads it
-        -> await sub_call(): same task, same context
-        -> create_task(): new task, gets a copy
-        -> asyncio.to_thread(): worker thread gets propagated context
-        -> run_in_executor(): copy context yourself when needed
-        -> Thread(target=fn): copy context yourself
-        -> celery_task.delay(): separate process, serialize values
-```
-
-### When to use ContextVars
-
-* **Request ID / correlation ID** - the main use case
-* **Current user / auth context** - avoid passing `user` through 10 layers
-* **Database session** - scoped to a request
-* **Structured logging** - auto-inject request metadata into every log line
-* **Feature flags** - evaluated once per request, available everywhere
-
-### When NOT to use ContextVars
-
-* **Passing data between two specific functions** - just use function arguments
-* **Sharing state across processes** - use Redis, a database, or message queues
-* **Global configuration** - use regular module-level constants or settings objects
-
----
-
-## TL;DR
-
-1. **Declare** `ContextVar` at module level (like you would a logger).
-2. **Set** inside middleware or request handlers with `token = var.set(value)`.
-3. **Read** anywhere in the call chain with `var.get()`.
-4. **Reset** in a `finally` block with `var.reset(token)`.
-5. **Thread offload**: prefer `asyncio.to_thread()` or wrap custom executor calls with `copy_context().run()`.
-6. **Cross-process workers** (Celery, Dramatiq): pass values as explicit arguments.
-
-```python
-# The whole pattern in 10 lines
-from contextvars import ContextVar
-
-request_id_var: ContextVar[str] = ContextVar("request_id", default="N/A")
-
-# In middleware
-token = request_id_var.set("req-123")
-try:
-    response = await handle_request()
-finally:
-    request_id_var.reset(token)
-
-# Anywhere else in the request chain
-def get_request_id() -> str:
-    return request_id_var.get()
-```
+Also test two concurrent tasks with different values. A serial unit test will not reveal accidental use of a module global or `threading.local()`.
 
 ---
 
 ## References
 
-* [`contextvars`](https://docs.python.org/3/library/contextvars.html)
-* [`asyncio.to_thread`](https://docs.python.org/3/library/asyncio-task.html#asyncio.to_thread)
-* [`loop.run_in_executor`](https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.run_in_executor)
-* [`threading.Thread`](https://docs.python.org/3/library/threading.html#threading.Thread)
+- [`contextvars`](https://docs.python.org/3/library/contextvars.html)
+- [`asyncio.to_thread()`](https://docs.python.org/3/library/asyncio-task.html#asyncio.to_thread)
+- [`loop.run_in_executor()`](https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.run_in_executor)
+- [`threading.Thread`](https://docs.python.org/3/library/threading.html#threading.Thread)
+
+---
+
+**Next**: [Threads and Blocking I/O](../threads/README.md)

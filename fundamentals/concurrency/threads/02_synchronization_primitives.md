@@ -1,12 +1,12 @@
 # Thread Synchronization Primitives and Patterns
 
-This guide covers the lower-level ideas that sit underneath thread-safe Python code: mutexes, semaphores, condition variables, try-locks, lock granularity, queues, reader-writer coordination, deadlocks, livelocks, and CAS.
+> **Who this is for**: Developers who need to protect shared in-process state or coordinate raw threads. Prefer [ThreadPoolExecutor](01_thread_pool_executor.md) for independent calls; use these primitives when workers genuinely share an invariant or lifecycle.
 
 The backend default is still simple: prefer ownership transfer through queues, immutable messages, one clear lock around shared state, or an external system such as Redis/PostgreSQL. Reach for clever synchronization only when the simpler design has a measured problem.
 
 ---
 
-## Thread lifecycle
+## 1. Thread Lifecycle and Failure
 
 A raw `threading.Thread` has a small lifecycle:
 
@@ -33,6 +33,8 @@ thread.start()
 time.sleep(2)
 stop.set()
 thread.join(timeout=5)
+if thread.is_alive():
+    raise TimeoutError("poller did not stop within 5 seconds")
 ```
 
 Rules:
@@ -41,10 +43,13 @@ Rules:
 - Prefer cooperative stop signals such as `threading.Event`.
 - Do not rely on daemon threads for important cleanup. Daemon threads can be abandoned when the process exits.
 - Prefer `ThreadPoolExecutor` for request fan-out or many short blocking calls.
+- `join(timeout=...)` always returns `None`; call `is_alive()` to learn whether the timeout expired.
+
+An exception in a raw thread does not propagate through `join()`. Python sends it to `threading.excepthook()`, which prints it by default. If the caller needs a result or failure, prefer a `Future`, send a result through a queue, or install an explicit exception-reporting policy.
 
 ---
 
-## Mutex: `threading.Lock`
+## 2. Mutex: `threading.Lock`
 
 A mutex lets only one thread enter a critical section at a time. In Python, the usual mutex is `threading.Lock`.
 
@@ -66,7 +71,7 @@ Keep lock scopes small, but not so small that the protected operation stops bein
 
 ---
 
-## Try-lock
+## 3. Try-Lock
 
 A try-lock attempts to acquire a lock without waiting forever. In Python, use `acquire(blocking=False)` or `acquire(timeout=...)`.
 
@@ -96,7 +101,7 @@ Try-locks are useful for best-effort maintenance work, avoiding shutdown hangs, 
 
 ---
 
-## Reentrant lock: `threading.RLock`
+## 4. Reentrant Lock: `threading.RLock`
 
 `RLock` allows the same thread to acquire the same lock more than once. It must release it the same number of times.
 
@@ -117,11 +122,11 @@ class Account:
             self._balance += amount
 ```
 
-Use `RLock` when a public method and a helper both need the same lock, or when callbacks re-enter the same object. If you do not need re-entry, prefer `Lock`; it is simpler and makes accidental nested locking easier to notice.
+Use `RLock` when a public method and a helper both need the same lock. Avoid invoking unknown callbacks under the lock; re-entrancy can hide a confused ownership design. If you do not need re-entry, prefer `Lock` because accidental nested locking remains visible.
 
 ---
 
-## Coarse vs fine locks
+## 5. Coarse Versus Fine-Grained Locks
 
 A coarse lock protects a large area of state with one lock. It is simple and often correct enough.
 
@@ -161,7 +166,7 @@ Prefer coarse locks until measurement shows contention. Use fine locks only when
 
 ---
 
-## Semaphore
+## 6. Semaphores Protect Capacity
 
 A semaphore limits how many threads can enter a section at once. It protects capacity, not ownership of one invariant.
 
@@ -185,7 +190,7 @@ For async code, use `asyncio.Semaphore` instead.
 
 ---
 
-## Condition variables
+## 7. Condition Variables Protect Predicates
 
 A condition variable lets threads wait until a predicate becomes true. It combines a lock with a wait/notify mechanism.
 
@@ -211,10 +216,11 @@ Rules:
 - Use `wait_for(...)` or a `while not predicate: condition.wait()` loop.
 - Call `notify()` or `notify_all()` while holding the condition lock.
 - Prefer `queue.Queue` for normal producer-consumer handoff.
+- Add a timeout or shutdown predicate when a waiter must not block forever.
 
 ---
 
-## Signaling pattern
+## 8. Events Are Level-Triggered Signals
 
 Use `threading.Event` for one-way readiness or shutdown signals.
 
@@ -241,9 +247,11 @@ Choose the signal shape by intent:
 | Transfer work with backpressure | `queue.Queue` |
 | Limit resource capacity | `threading.Semaphore` |
 
+An event stores a boolean flag, not a count. Calling `set()` five times before a waiter calls `wait()` still represents one signalled state. Use a queue when every occurrence must be delivered.
+
 ---
 
-## Blocking queue and producer-consumer
+## 9. Blocking Queue and Producer-Consumer
 
 `queue.Queue` is Python's standard blocking queue for threads. `put()` blocks when the queue is full. `get()` blocks when it is empty.
 
@@ -253,6 +261,9 @@ import threading
 
 WorkItem = str | None
 work: queue.Queue[WorkItem] = queue.Queue(maxsize=100)
+
+def process(url: str) -> None:
+    print("processing", url)
 
 def producer(urls: list[str]) -> None:
     for url in urls:
@@ -265,7 +276,7 @@ def consumer() -> None:
         try:
             if item is None:
                 return
-            fetch(item)
+            process(item)
         finally:
             work.task_done()
 
@@ -280,10 +291,13 @@ Key points:
 - Call `task_done()` once for every successful `get()`.
 - `join()` waits until all queued tasks are marked done.
 - With multiple consumers, send one sentinel per consumer or use another shutdown signal.
+- Use `Queue(maxsize=...)` when producers must experience backpressure; `SimpleQueue` is unbounded.
+
+Python 3.13+ adds `Queue.shutdown()`. Graceful shutdown rejects new `put()` calls while allowing consumers to drain existing items. `shutdown(immediate=True)` abandons queued work and can unblock `join()` without the usual "every item was processed" guarantee.
 
 ---
 
-## Thread-safe cache
+## 10. Put Shared State Behind One API
 
 Put shared mutable state behind one API and keep the lock private.
 
@@ -313,7 +327,7 @@ For get-or-compute caches, decide deliberately:
 
 ---
 
-## Reader-writer pattern
+## 11. Reader-Writer Pattern
 
 A reader-writer lock lets multiple readers enter together while writers need exclusive access. Python's standard library does not provide a reader-writer lock.
 
@@ -364,7 +378,7 @@ This sketch is reader-biased and can starve writers under heavy read load. Produ
 
 ---
 
-## Race condition
+## 12. Race Conditions Protect Invariants, Not Lines
 
 A race condition happens when correctness depends on timing between concurrent operations.
 
@@ -377,7 +391,7 @@ Two threads can both observe the missing key and both compute. The fix is to pro
 
 ---
 
-## Deadlock
+## 13. Deadlock
 
 A deadlock happens when threads wait forever for each other.
 
@@ -397,7 +411,7 @@ Rules:
 
 ---
 
-## Livelock
+## 14. Livelock
 
 A livelock is not blocked, but it still makes no progress. Threads keep reacting to each other.
 
@@ -412,21 +426,9 @@ Fixes:
 
 ---
 
-## CAS: Compare-And-Swap
+## 15. Compare-And-Swap and Optimistic Concurrency
 
-Compare-And-Swap is an atomic primitive:
-
-```python
-# Pseudocode. Python does not expose this as a general stdlib API.
-old = atomic.load()
-new = transform(old)
-if atomic.compare_and_swap(expected=old, replacement=new):
-    commit_succeeded()
-else:
-    retry()
-```
-
-CAS is used to build lock-free data structures and optimistic concurrency systems. In normal Python backend code:
+**Compare-And-Swap (CAS)** atomically replaces a value only if it still equals an expected old value. It is used to build lock-free data structures and optimistic concurrency systems. In normal Python backend code:
 
 - The standard library does not give you a general-purpose CAS for Python objects.
 - The GIL is not a substitute for CAS.
@@ -445,7 +447,7 @@ If the update count is zero, another writer won the race and the caller should r
 
 ---
 
-## Quick map
+## 16. Quick Map
 
 | Concept | Python shape |
 |---------|--------------|
@@ -459,12 +461,13 @@ If the update count is zero, another writer won the race and the caller should r
 | Signaling | `threading.Event`, `Condition.notify_all()` |
 | Blocking queue | `queue.Queue` |
 | Producer-consumer | `queue.Queue(maxsize=...)` plus worker threads |
+| Start together / phase rendezvous | `threading.Barrier` |
 | Reader-writer | Custom/library primitive; no stdlib `RWLock` |
 | CAS | No general stdlib API; use locks or external atomic operations |
 
 ---
 
-## Checklist
+## 17. Design Checklist
 
 - Can I avoid sharing this mutable object?
 - Can a queue transfer ownership instead of exposing shared state?
@@ -473,3 +476,15 @@ If the update count is zero, another writer won the race and the caller should r
 - Is every blocking wait bounded or shutdown-aware?
 - Am I using thread primitives only in threaded code, not directly on the event loop?
 - Does this state need to work across processes or pods?
+
+---
+
+## References
+
+- [`threading`](https://docs.python.org/3/library/threading.html)
+- [`queue`](https://docs.python.org/3/library/queue.html)
+- [`concurrent.futures`](https://docs.python.org/3/library/concurrent.futures.html)
+
+---
+
+**Next**: [Processes and CPU Parallelism](../processes/README.md)

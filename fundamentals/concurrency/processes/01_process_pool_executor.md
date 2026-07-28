@@ -1,10 +1,12 @@
 # ProcessPoolExecutor
 
-`ProcessPoolExecutor` runs callables in separate Python processes. It is the cleanest stdlib tool for CPU-bound Python work when you want true parallelism on the default CPython build.
+> **Who this is for**: Python developers moving substantial, independent CPU work out of a web or orchestration process. Read [State, Mutability, and Safety](../01_state_and_safety.md) before designing process-shared state.
 
 ---
 
-## When to use it
+## 1. What a Process Pool Solves
+
+`ProcessPoolExecutor` runs callables in separate Python processes. Each worker has its own interpreter, GIL, and memory space, so pure-Python CPU work can execute on multiple cores on the regular CPython build.
 
 Use a process pool when:
 
@@ -23,7 +25,7 @@ Avoid it when:
 
 ---
 
-## Minimal example
+## 2. Minimal CPU Example
 
 ```python
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -35,7 +37,7 @@ def heavy(n: int) -> float:
         total += math.sqrt(i) * math.sin(i)
     return total
 
-def main():
+def main() -> None:
     inputs = [300_000, 350_000, 400_000, 450_000]
 
     with ProcessPoolExecutor() as ex:
@@ -47,11 +49,11 @@ if __name__ == "__main__":
     main()
 ```
 
-The `__main__` guard matters. On Windows and macOS it is required because child processes import your module. On modern POSIX Python, it is still the habit you want because defaults have moved away from raw `fork`.
+The `__main__` guard prevents child imports from starting another pool. It is required for safe importing with the `spawn` and `forkserver` start methods, which cover every platform's modern default. Process pools also do not work reliably from an interactive interpreter because worker processes must import the main module.
 
 ---
 
-## Pickling rules
+## 3. Design an Importable, Picklable Boundary
 
 Everything sent to a process must be serializable with `pickle`.
 
@@ -59,7 +61,7 @@ Good:
 
 - Top-level functions.
 - Built-in scalar values.
-- Lists, tuples, dicts, dataclasses, and Pydantic models made of picklable values.
+- Lists, tuples, dicts, and dataclasses made of picklable values.
 - Small bytes payloads.
 
 Bad:
@@ -95,9 +97,11 @@ def main():
         print(list(ex.map(work, range(10))))
 ```
 
+Importability is separate from serialization. A top-level function can still fail if its module performs side effects during import, and a serializable object can still be too large to transfer efficiently.
+
 ---
 
-## `submit()` vs `map()`
+## 4. Choose `submit()` or `map()`
 
 Use `submit()` when each task needs its own error handling, timeout, retry, or metadata:
 
@@ -133,9 +137,11 @@ with ProcessPoolExecutor() as ex:
         print(result)
 ```
 
+Without `buffersize`, `Executor.map()` collects its inputs eagerly. `buffersize` bounds how far submission can run ahead of result consumption; `chunksize` controls how many input elements share each process work item. Tune them independently.
+
 ---
 
-## Choosing worker count
+## 5. Size Workers for CPU and Memory
 
 For CPU-heavy Python, start near the CPU count:
 
@@ -153,7 +159,7 @@ Use fewer workers when each worker needs a lot of memory or when the machine is 
 
 ---
 
-## Start methods
+## 6. Know the Process Start Method
 
 Check the start method:
 
@@ -166,7 +172,7 @@ Common methods:
 | Method | Meaning | Notes |
 |--------|---------|-------|
 | `spawn` | Start a fresh Python interpreter | Default on Windows and macOS. Safest, higher startup cost. |
-| `forkserver` | A server process forks clean worker processes | Default on POSIX in Python 3.14+. Safer than raw `fork` in multi-threaded programs. |
+| `forkserver` | A server process forks clean worker processes | Default in Python 3.14+ on POSIX platforms that support it, such as Linux. |
 | `fork` | Fork the current process | Fast, but risky with threads and inherited state. |
 
 Prefer the platform default unless you have measured a real need and understand the consequences.
@@ -183,9 +189,52 @@ with ProcessPoolExecutor(mp_context=ctx) as ex:
     ...
 ```
 
+Libraries should let their caller provide a multiprocessing context rather than setting one global start method. Locks and other multiprocessing objects created by one context may be incompatible with processes from another.
+
+The `spawn` and `forkserver` methods also mean worker imports rerun module top-level code. Keep pool construction, servers, telemetry startup, and other side effects behind an application entry point.
+
 ---
 
-## Shutdown and emergency stop
+## 7. Initialize and Recycle Workers Deliberately
+
+Use `initializer` for read-only worker-local setup that would otherwise repeat for every task:
+
+```python
+from concurrent.futures import ProcessPoolExecutor
+
+model = None
+
+def initialize_worker(model_path: str) -> None:
+    global model
+    model = load_model(model_path)
+
+def predict(record: bytes) -> list[float]:
+    if model is None:
+        raise RuntimeError("worker model is not initialized")
+    return model.predict(record)
+
+def run_predictions(records: list[bytes]) -> list[list[float]]:
+    with ProcessPoolExecutor(
+        initializer=initialize_worker,
+        initargs=("models/current.bin",),
+    ) as executor:
+        return list(executor.map(predict, records))
+```
+
+Each worker loads its own copy, so include that memory in capacity planning. An initializer failure breaks the pool and pending work raises `BrokenProcessPool`.
+
+`max_tasks_per_child` can replace workers periodically when unavoidable native leaks or fragmentation accumulate:
+
+```python
+with ProcessPoolExecutor(max_tasks_per_child=1_000) as executor:
+    ...
+```
+
+Recycling adds startup latency. When no explicit context is supplied, using this option selects `spawn`; it is incompatible with `fork`.
+
+---
+
+## 8. Separate Cancellation from Termination
 
 Normal shutdown:
 
@@ -206,11 +255,15 @@ pool.terminate_workers()
 pool.kill_workers()
 ```
 
-Use those only when graceful shutdown has failed or the work is no longer safe to continue. Design ordinary application shutdown around cooperative completion or cancellation.
+These terminate **all living workers in that executor**, not one future. Abrupt termination can skip `finally` blocks and leave external writes, locks, pipes, or queues inconsistent. After either call, the pool cannot accept new work.
+
+Use them only when graceful shutdown has failed or continuing is less safe than abandoning work. Design ordinary shutdown around cooperative completion, small task boundaries, and idempotent outputs.
+
+`future.result(timeout=...)` and `future.cancel()` do not terminate a call that has started. They only bound the caller's wait or cancel pending work.
 
 ---
 
-## Sharing state between processes
+## 9. Prefer Messages to Shared Process State
 
 Processes do not share normal Python objects. This is a feature.
 
@@ -227,45 +280,54 @@ Options:
 
 For backend systems, external state is usually the correct production answer. In-memory process sharing is best for local CPU pipelines, not global app coordination.
 
+Shared-memory segments require explicit synchronization and lifecycle cleanup. Close every handle and arrange one owner to call `unlink()`. A killed process can leave tracked OS resources behind until the resource tracker or an operator cleans them up.
+
 ---
 
-## Process pools from async code
+## 10. Own the Pool Outside Async Request Handlers
 
-Create the pool once, not per request:
+Create the pool once in the application entry point or framework lifespan, then pass the pool to code that submits work:
 
 ```python
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
 
-pool = ProcessPoolExecutor()
-
 def cpu_work(x: int) -> int:
     return sum(range(10_000_000)) + x
 
-async def cpu_work_async(x: int) -> int:
+async def cpu_work_async(pool: ProcessPoolExecutor, x: int) -> int:
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(pool, cpu_work, x)
+
+async def main() -> None:
+    with ProcessPoolExecutor() as pool:
+        results = await asyncio.gather(
+            cpu_work_async(pool, 1),
+            cpu_work_async(pool, 2),
+        )
+        print(results)
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-Shut it down during application shutdown:
+Do not construct a process pool at module import in code that workers import. With `spawn` or `forkserver`, every worker imports the module and would create its own unused executor object.
 
-```python
-pool.shutdown(wait=True)
-```
+Cancelling `cpu_work_async()` stops the asyncio task from waiting; it does not reliably stop `cpu_work()` after a process has begun executing it. Bound process submissions and make output commits idempotent.
 
 Do not pass request-scoped `ContextVar` state implicitly. Process boundaries require explicit serialization:
 
 ```python
-def cpu_work(request_id: str, x: int) -> int:
+def cpu_work_with_context(request_id: str, x: int) -> int:
     ...
 
 request_id = request_id_var.get()
-await loop.run_in_executor(pool, cpu_work, request_id, x)
+await loop.run_in_executor(pool, cpu_work_with_context, request_id, x)
 ```
 
 ---
 
-## Common pitfalls
+## 11. Failure Modes and Observability
 
 - Creating a new process pool inside every request.
 - Passing a lambda or nested function.
@@ -274,11 +336,28 @@ await loop.run_in_executor(pool, cpu_work, request_id, x)
 - Using a process pool for tiny work where IPC dominates.
 - Depending on module globals that differ per worker process.
 - Forgetting that local semaphores and counters are per process, not global.
+- Assuming a future timeout stopped CPU work already running.
+- Constructing a pool during module import.
+- Ignoring `BrokenProcessPool` after a worker crashes or an initializer fails.
+- Force-terminating workers while they hold IPC locks or write non-idempotent output.
+
+Measure:
+
+- Submission queue depth and age.
+- Task runtime and serialization time.
+- Worker CPU and resident memory.
+- Pool startup and worker-recycle latency.
+- `BrokenProcessPool`, timeout, and forced-termination counts.
+- End-to-end backlog, not just worker execution time.
 
 ---
 
-## References
+## 12. References
 
 - [`concurrent.futures.ProcessPoolExecutor`](https://docs.python.org/3/library/concurrent.futures.html#processpoolexecutor)
 - [`multiprocessing` start methods](https://docs.python.org/3/library/multiprocessing.html#contexts-and-start-methods)
 - [`multiprocessing.shared_memory`](https://docs.python.org/3/library/multiprocessing.shared_memory.html)
+
+---
+
+**Next**: [Background Work and Durable Jobs](../../../background_work/README.md)

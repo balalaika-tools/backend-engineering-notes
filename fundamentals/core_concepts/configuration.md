@@ -1,6 +1,14 @@
 # Environment & Configuration in Python — A Production Guide
 
+> **Who this is for**: Python backend developers who know environment variables
+> and want one typed, validated configuration boundary for local development,
+> tests, containers, and production secret delivery.
+
 This guide explains **how to manage configuration in Python backend applications** — from local development to production. Covers the 12-factor methodology, pydantic-settings, secrets management, and real-world patterns for FastAPI.
+
+> **Mental model**: deployment sources provide untrusted strings; one Settings
+> object parses and validates them at startup; the rest of the application
+> consumes typed, immutable-by-policy values.
 
 ---
 
@@ -91,16 +99,21 @@ print(settings.max_connections)  # 10 (default)
 
 ### Resolution Order
 
-pydantic-settings resolves values in this order (first match wins):
+pydantic-settings resolves its default non-CLI sources in this order (first
+match wins):
 
 | Priority | Source              | Example                              |
 | -------- | ------------------- | ------------------------------------ |
 | 1        | Init kwargs         | `Settings(debug=True)`               |
 | 2        | Environment vars    | `export DEBUG=true`                  |
 | 3        | `.env` file         | `DEBUG=true` in `.env`               |
-| 4        | Field default       | `debug: bool = False`                |
+| 4        | Secrets directory   | `/run/secrets/api_key`               |
+| 5        | Field default       | `debug: bool = False`                |
 
 If no source provides a value and there is no default, startup fails with a validation error. This is exactly what you want — fail fast.
+
+CLI parsing and custom settings sources can change this order. If precedence
+matters, test it explicitly rather than relying on memory.
 
 ---
 
@@ -124,6 +137,11 @@ class Settings(BaseSettings):
     debug: bool = False
     api_key: str
 ```
+
+`env_file=".env"` is resolved from the process's current working directory.
+pydantic-settings does not walk parent directories looking for it. Start the
+application from a defined working directory or pass an explicit path from the
+entry point.
 
 ### `.env` File Format
 
@@ -260,7 +278,7 @@ secret_key
 For large applications, group related config into nested models:
 
 ```python
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class DatabaseSettings(BaseModel):
@@ -287,7 +305,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     debug: bool = False
     database: DatabaseSettings
-    redis: RedisSettings = RedisSettings()
+    redis: RedisSettings = Field(default_factory=RedisSettings)
     auth: AuthSettings
 ```
 
@@ -365,16 +383,45 @@ This gives you:
 ```python
 from fastapi.testclient import TestClient
 
-def get_test_settings():
+
+def get_test_settings() -> Settings:
     return Settings(
-        database_url="sqlite:///test.db",
-        secret_key="test-secret",
+        environment="test",
         debug=True,
+        database={"url": "sqlite:///test.db"},
+        auth={"secret_key": "test-secret"},
     )
 
-app.dependency_overrides[get_settings] = get_test_settings
-client = TestClient(app)
+
+def test_info_uses_override() -> None:
+    app.dependency_overrides[get_settings] = get_test_settings
+    try:
+        with TestClient(app) as client:
+            response = client.get("/info")
+        assert response.status_code == 200
+        assert response.json()["debug"] is True
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
 ```
+
+When a test changes environment variables and calls `get_settings()` directly,
+clear the cache before and after the assertion:
+
+```python
+def test_environment_override(monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE__URL", "sqlite:///test.db")
+    monkeypatch.setenv("AUTH__SECRET_KEY", "test-secret")
+    monkeypatch.setenv("DEBUG", "true")
+    get_settings.cache_clear()
+    try:
+        assert get_settings().debug is True
+    finally:
+        get_settings.cache_clear()
+```
+
+Environment changes after the first cached call do not update the existing
+object. That stability is desirable in production; use explicit cache clearing
+only in tests or a deliberately designed reload mechanism.
 
 ---
 
@@ -405,30 +452,30 @@ LOG_LEVEL=DEBUG
 ENVIRONMENT=production
 DEBUG=false
 DATABASE_URL=postgresql://user:pass@prod-db:5432/myapp
-LOG_LEVEL=WARNING
+LOG_LEVEL=INFO
 ```
 
 ### Computed Properties Based on Environment
 
 ```python
-from pydantic import computed_field
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env")
 
     environment: str = "development"
     debug: bool = False
 
-    @computed_field
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
 
-    @computed_field
     @property
     def is_development(self) -> bool:
         return self.environment == "development"
 ```
+
+A plain property is intentional: `computed_field` includes the value in model
+serialization, while these booleans are conveniences derived from real settings,
+not additional configuration.
 
 Usage:
 
@@ -443,6 +490,10 @@ if settings.is_development:
 else:
     app = FastAPI(docs_url=None)  # disable docs in prod
 ```
+
+Disabling interactive docs may reduce accidental exposure, but it is not access
+control. Protect the application and any schema endpoint with network and
+authentication policy appropriate to the deployment.
 
 ### Per-Environment `.env` Files
 
@@ -484,6 +535,12 @@ In production, secrets come from the platform — not files in your repo:
 | AWS ECS          | Secrets Manager → env vars           |
 | Railway / Render | Dashboard → env vars                 |
 | Vault            | API call at startup or sidecar       |
+
+Environment variables are convenient but can appear in process diagnostics,
+crash reports, or platform inspection APIs. Mounted secret files reduce some of
+that exposure and can support rotation, but their permissions and lifecycle
+still need controls. Kubernetes Secret values are not made confidential merely
+by base64 encoding; configure encryption at rest and RBAC for the cluster.
 
 #### Kubernetes Secrets as Environment Variables
 
@@ -531,9 +588,9 @@ With `secrets_dir`, pydantic-settings reads `/run/secrets/database_url` as the v
 
 ### `SecretStr` — Keep Secrets Out of Logs and Tracebacks
 
-A plain `str` secret leaks the moment something prints, logs, or `repr()`s your
-settings object — including unhandled-exception tracebacks. Pydantic's
-`SecretStr` masks the value everywhere except where you explicitly unwrap it:
+A plain `str` secret can leak when a settings object is printed, logged, or
+serialized. Pydantic's `SecretStr` masks its normal string representation and
+requires an explicit unwrap at the point of use:
 
 ```python
 from typing import Optional
@@ -556,11 +613,15 @@ print(settings.secret_key.get_secret_value())  # the real value — only when yo
 
 Use `SecretStr` for every credential (`secret_key`, API keys, DB passwords).
 Call `.get_secret_value()` only at the point of use — e.g. when building a
-connection string or signing a token — never when logging.
+connection or signing a token — never when logging.
+
+`SecretStr` is defense in depth, not automatic leak prevention. A caller can
+unwrap it, a connection URL can contain it, and raw environment input can appear
+outside the model. Keep secrets out of log fields and sanitize exception paths.
 
 ### What Not to Do
 
-```python
+```text
 # ❌ Hardcoded secret
 SECRET_KEY = "my-super-secret-key-12345"
 
@@ -603,17 +664,21 @@ myapp/
 ```python
 from typing import Optional
 
-from pydantic import BaseModel, SecretStr, field_validator, computed_field
+from pydantic import BaseModel, ConfigDict, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DatabaseSettings(BaseModel):
-    url: str
+    model_config = ConfigDict(frozen=True)
+
+    url: SecretStr
     pool_size: int = 5
     pool_timeout: int = 30
 
 
 class AuthSettings(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     secret_key: SecretStr
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
@@ -625,6 +690,9 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         env_nested_delimiter="__",
         case_sensitive=False,
+        env_ignore_empty=True,
+        frozen=True,
+        hide_input_in_errors=True,
     )
 
     # Application
@@ -660,11 +728,17 @@ class Settings(BaseSettings):
             raise ValueError(f"Invalid log level: {v}")
         return v
 
-    @computed_field
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
 ```
+
+`env_ignore_empty=True` lets blank optional entries in `.env.example` fall back
+to their defaults instead of becoming empty strings.
+`hide_input_in_errors=True` reduces the chance that invalid raw input appears in
+validation messages. It does not replace secret-safe logging and error handling.
+Freezing both the root and nested models prevents accidental mutation throughout
+the settings tree.
 
 ### `dependencies.py`
 
@@ -747,24 +821,36 @@ ENABLE_WEBHOOKS=false
 ### Database URL
 
 ```python
-class Settings(BaseSettings):
-    database_url: str
+from pydantic import SecretStr
+from sqlalchemy import URL
 
-    # Or build from components:
+
+class Settings(BaseSettings):
     db_host: str = "localhost"
     db_port: int = 5432
     db_user: str = "postgres"
-    db_password: str = ""
+    db_password: SecretStr
     db_name: str = "myapp"
 
-    @computed_field
     @property
-    def database_url_computed(self) -> str:
-        return (
-            f"postgresql://{self.db_user}:{self.db_password}"
-            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+    def database_url(self) -> URL:
+        return URL.create(
+            drivername="postgresql+asyncpg",
+            username=self.db_user,
+            password=self.db_password.get_secret_value(),
+            host=self.db_host,
+            port=self.db_port,
+            database=self.db_name,
         )
 ```
+
+`URL.create()` handles reserved characters in usernames/passwords correctly and
+masks the password in its normal string representation. Pass the `URL` object
+directly to SQLAlchemy. If a driver requires a string, unwrap/render it only at
+that integration boundary. Do not log the rendered credential URL.
+
+Choose one canonical input shape: either a complete deployment-provided DSN or
+separate components. Defining both creates precedence and consistency problems.
 
 ### Feature Flags
 
@@ -775,6 +861,10 @@ class Settings(BaseSettings):
     enable_beta_features: bool = False
     max_upload_size_mb: int = 10
 ```
+
+Environment-backed booleans are deployment flags. They are appropriate for
+coarse switches that change only on restart. Use a real feature-flag service for
+live rollouts, per-user targeting, audit history, or rapid rollback.
 
 ```python
 @app.post("/signup")
@@ -851,6 +941,10 @@ class Settings(BaseSettings):
     debug: bool = False
 ```
 
+`frozen=True` is shallow with respect to nested objects. Freeze nested Pydantic
+models too, and avoid mutable containers when the complete settings tree must
+remain unchanged.
+
 ### Creating settings per request
 
 ```python
@@ -900,7 +994,7 @@ class Settings(BaseSettings):
 
 ### Startup Checklist
 
-1. All secrets come from environment (never code)
+1. All secrets come from deployment-provided environment or secret files (never code)
 2. `.env` is in `.gitignore`
 3. `.env.example` documents every variable
 4. Settings class validates types and constraints
@@ -912,7 +1006,6 @@ class Settings(BaseSettings):
 
 ```python
 from functools import lru_cache
-from pydantic import field_validator, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -921,7 +1014,9 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         env_nested_delimiter="__",
         case_sensitive=False,
+        env_ignore_empty=True,
         frozen=True,
+        hide_input_in_errors=True,
     )
 
     environment: str = "development"
@@ -929,7 +1024,6 @@ class Settings(BaseSettings):
 
     # Add your config fields here
 
-    @computed_field
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
@@ -946,9 +1040,11 @@ def get_settings() -> Settings:
 | Secrets source                | `.env` file           | Platform env vars / secrets  |
 | Debug mode                    | `True`                | `False`                      |
 | `.env` file                   | Exists, gitignored    | Not used (env vars instead)  |
-| Log level                     | `DEBUG`               | `WARNING` or `ERROR`         |
-| Docs endpoint                 | `/docs`               | Disabled (`None`)            |
+| Log level                     | `DEBUG`               | `INFO` by default; tune noisy loggers/handlers |
+| Docs endpoint                 | Usually `/docs`        | Protect or disable by deployment policy |
 | Settings validation           | Same as prod          | Same as dev                  |
 | `@lru_cache` settings         | Yes                   | Yes                          |
 
 ---
+
+**Next**: [Unix Signals and Graceful Shutdown](signals.md)

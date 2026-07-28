@@ -1,10 +1,14 @@
 # ThreadPoolExecutor
 
-`ThreadPoolExecutor` runs callables in a pool of OS threads inside the current Python process. It is the simplest stdlib tool for integrating blocking I/O with a concurrent program.
+> **Who this is for**: Python developers integrating blocking libraries or native work into a concurrent backend. Read [State, Mutability, and Safety](../01_state_and_safety.md) before sharing objects between workers.
 
 ---
 
-## When to use it
+## 1. What a Thread Pool Solves
+
+`ThreadPoolExecutor` runs synchronous callables in reusable OS threads inside the current process. It is the simplest standard-library bridge when a dependency blocks and no async-native API is available.
+
+Threads share process memory, imports, and file descriptors. Communication is cheap, but a crash in native code affects the process and shared mutable objects need deliberate ownership.
 
 Use a thread pool when:
 
@@ -21,7 +25,7 @@ Avoid it when:
 
 ---
 
-## Minimal example
+## 2. Minimal Blocking-I/O Example
 
 ```python
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -38,12 +42,17 @@ def fetch(url: str) -> tuple[str, int]:
         return url, response.status
 
 def main():
-    with ThreadPoolExecutor(max_workers=20) as ex:
-        futures = [ex.submit(fetch, url) for url in URLS]
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futures = {ex.submit(fetch, url): url for url in URLS}
 
         for fut in as_completed(futures):
-            url, status = fut.result()
-            print(url, status)
+            url = futures[fut]
+            try:
+                _, status = fut.result()
+            except Exception as exc:
+                print(url, "failed:", exc)
+            else:
+                print(url, status)
 
 if __name__ == "__main__":
     main()
@@ -51,7 +60,7 @@ if __name__ == "__main__":
 
 ---
 
-## Futures
+## 3. Futures Are Result Handles
 
 `executor.submit(fn, *args)` returns a `Future`.
 
@@ -73,20 +82,25 @@ Useful methods:
 
 Always retrieve results from futures. If you never call `result()` or inspect exceptions, failures become easy to miss.
 
+`concurrent.futures.Future` is a blocking/thread-safe result handle. It is not the same type as `asyncio.Future`; do not call its blocking `.result()` method on an event-loop thread.
+
 ---
 
-## `map()` vs `submit()`
+## 4. Choose `map()` or `submit()`
 
 `map()` is concise and returns results in input order:
 
 ```python
+import os
 from concurrent.futures import ThreadPoolExecutor
 
-def parse(blob: bytes) -> str:
-    return blob.decode().upper()
+def stat_file(path: str) -> tuple[str, int]:
+    return path, os.stat(path).st_size
+
+paths = ["README.md"]
 
 with ThreadPoolExecutor() as ex:
-    for result in ex.map(parse, blobs):
+    for result in ex.map(stat_file, paths):
         print(result)
 ```
 
@@ -111,27 +125,36 @@ with ThreadPoolExecutor() as ex:
             print(x, "failed:", exc)
 ```
 
-In Python 3.14+, `Executor.map(..., buffersize=...)` can limit how many unfinished tasks are submitted ahead of result consumption:
+Without `buffersize`, `Executor.map()` collects its inputs eagerly. In Python 3.14+, `buffersize` limits how many submitted results may wait ahead of consumption:
 
 ```python
 with ThreadPoolExecutor(max_workers=20) as ex:
-    for result in ex.map(fetch, urls, buffersize=100):
+    for result in ex.map(fetch, URLS, buffersize=100):
         print(result)
 ```
 
+`map()` yields in input order, so one slow early item delays later results that have already finished. Use `submit()` plus `as_completed()` when completion order, per-item metadata, or per-item error handling matters.
+
 ---
 
-## Choosing `max_workers`
+## 5. Size the Pool from Capacity
 
-Thread pools for I/O often use more workers than CPU cores because most workers are waiting.
+Thread pools for I/O can use more workers than CPU cores because most workers wait. CPU count is still relevant for native CPU work and for oversubscription, but downstream capacity is usually the harder bound.
 
-Start with:
+A rough starting estimate is:
 
-- 5-20 for local disk or small downstream systems.
-- 20-100 for network I/O with real timeouts.
-- Provider or database connection limits as the hard ceiling.
+```text
+needed concurrency ≈ target completions per second × typical operation latency
+```
 
-The default `ThreadPoolExecutor` size is intentionally modest. Production systems should set the value explicitly based on downstream limits and measurement.
+If a call takes 200 ms and the service needs 100 completions per second, roughly 20 calls must be in flight. Cap that estimate by:
+
+- Provider concurrency and rate quotas.
+- HTTP/database connection-pool sizes.
+- File descriptor, memory, and thread-stack budgets.
+- The capacity reserved for other operations in the same process.
+
+Then load-test tail latency and failure behavior. More workers can increase queueing and downstream overload without increasing throughput.
 
 ```python
 with ThreadPoolExecutor(max_workers=32, thread_name_prefix="http") as ex:
@@ -140,38 +163,48 @@ with ThreadPoolExecutor(max_workers=32, thread_name_prefix="http") as ex:
 
 ---
 
-## Timeouts, cancellation, and shutdown
+## 6. Separate Wait Timeouts from Work Timeouts
 
 Timeout waiting for a result:
 
 ```python
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ThreadPoolExecutor
 import time
 
-def slow():
+def slow() -> str:
     time.sleep(5)
     return "done"
 
-with ThreadPoolExecutor() as ex:
-    fut = ex.submit(slow)
+executor = ThreadPoolExecutor(max_workers=1)
+future = executor.submit(slow)
 
-    try:
-        print(fut.result(timeout=1))
-    except TimeoutError:
-        print("timed out")
+try:
+    print(future.result(timeout=1))
+except TimeoutError:
+    # The caller stopped waiting. slow() is probably still running.
+    print("timed out; cancelled pending work:", future.cancel())
+finally:
+    executor.shutdown(wait=False, cancel_futures=True)
 ```
 
-Cancel pending work during shutdown:
+`Future.result(timeout=...)` limits how long the caller waits. It does not inject a timeout into the blocking function. If the future is already running, `future.cancel()` returns `False`.
+
+The blocking operation needs its own timeout:
 
 ```python
-ex.shutdown(wait=False, cancel_futures=True)
+import urllib.request
+
+with urllib.request.urlopen(url, timeout=5) as response:
+    ...
 ```
 
-This does not stop a function that is already running. Python cannot safely kill an arbitrary thread. Design blocking functions with their own timeouts and cooperative stop checks.
+`shutdown(wait=False, cancel_futures=True)` cancels work that has not started and returns without waiting for running work. The Python process still does not exit until executor workers finish. A `with ThreadPoolExecutor(...)` block calls shutdown with `wait=True`, so leaving the block can wait beyond an earlier `Future.result()` timeout.
+
+Python cannot safely kill an arbitrary running thread. Use dependency-level timeouts, cooperative stop events, and short work units. Do not put operations that may block forever in an in-process thread pool.
 
 ---
 
-## From async code
+## 7. Call Blocking Code from Asyncio
 
 For a simple blocking I/O call, prefer `asyncio.to_thread()`:
 
@@ -181,31 +214,56 @@ result = await asyncio.to_thread(blocking_io_function, arg1, arg2)
 
 `asyncio.to_thread()` propagates the current `contextvars.Context` into the worker thread. That makes it the ergonomic default for request ID and logging context.
 
+Cancelling the asyncio task stops awaiting the result but does not stop a sync function already running in the worker. Capacity remains occupied until that function returns.
+
 Use a custom pool when you need a named, bounded, long-lived pool:
 
 ```python
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
-pool = ThreadPoolExecutor(max_workers=20, thread_name_prefix="blocking-http")
+def read_file(path: str) -> bytes:
+    return Path(path).read_bytes()
 
-async def call_blocking(url: str) -> bytes:
+async def call_blocking(pool: ThreadPoolExecutor, path: str) -> bytes:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(pool, fetch_bytes, url)
+    return await loop.run_in_executor(pool, read_file, path)
+
+async def main() -> None:
+    with ThreadPoolExecutor(
+        max_workers=8,
+        thread_name_prefix="file-io",
+    ) as pool:
+        print(len(await call_blocking(pool, "README.md")))
 ```
 
 If you need `contextvars` with a custom executor, copy the context yourself:
 
 ```python
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 
-ctx = copy_context()
-return await loop.run_in_executor(pool, ctx.run, fetch_bytes, url)
+async def read_file_with_context(
+    pool: ThreadPoolExecutor,
+    path: str,
+) -> bytes:
+    loop = asyncio.get_running_loop()
+    context = copy_context()
+    return await loop.run_in_executor(
+        pool,
+        context.run,
+        read_file,
+        path,
+    )
 ```
+
+Create a fresh context copy for each concurrent submission. One `Context` cannot be entered concurrently by multiple threads.
 
 ---
 
-## Shared state
+## 8. Protect Shared State at the Invariant Boundary
 
 Threads share process memory. That means this is unsafe:
 
@@ -239,7 +297,7 @@ If `compute()` is slow, avoid holding the lock while it runs. Use a more careful
 
 ---
 
-## Deadlocks
+## 9. Avoid Pool and Lock Deadlocks
 
 The classic thread-pool deadlock: a worker waits for another future from the same saturated pool.
 
@@ -263,7 +321,7 @@ Rules:
 
 ---
 
-## Thread-local vs context-local
+## 10. Distinguish Thread-Local and Context-Local State
 
 `threading.local()` gives each OS thread its own storage:
 
@@ -278,7 +336,7 @@ Use `contextvars.ContextVar` for request context. See [../async/03_contextvars.m
 
 ---
 
-## Common pitfalls
+## 11. Common Failure Modes
 
 - Using threads for pure Python CPU speedups on the default GIL build.
 - Mutating globals from multiple threads without locks.
@@ -287,6 +345,9 @@ Use `contextvars.ContextVar` for request context. See [../async/03_contextvars.m
 - Waiting on futures from inside the same saturated pool.
 - Using `queue.Queue.get()` directly on the event loop.
 - Assuming code that "worked under the GIL" is safe on free-threaded Python.
+- Assuming a `Future` timeout stopped the underlying call.
+- Letting one blocking dependency saturate the default executor used by unrelated code.
+- Relying on daemon or executor threads to complete critical work during process exit.
 
 ---
 
@@ -296,3 +357,7 @@ Use `contextvars.ContextVar` for request context. See [../async/03_contextvars.m
 - [`threading`](https://docs.python.org/3/library/threading.html)
 - [`queue.Queue`](https://docs.python.org/3/library/queue.html)
 - [`asyncio.to_thread`](https://docs.python.org/3/library/asyncio-task.html#asyncio.to_thread)
+
+---
+
+**Next**: [Thread Synchronization Primitives and Patterns](02_synchronization_primitives.md)

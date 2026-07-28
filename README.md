@@ -63,13 +63,14 @@ python-backend-notes/
 
 | Guide | Description |
 |-------|-------------|
-| [Typing](fundamentals/core_concepts/typing.md) | `Optional` (preferred), `Literal`, `TypedDict`, `TypeVar`, `Protocol` |
-| [Context Managers](fundamentals/core_concepts/context_managers.md) | `with` / `async with`, `@contextmanager`, `ExitStack`, pitfalls |
-| [Decorators](fundamentals/core_concepts/decorators.md) | `@` syntax, `functools.wraps`, parameterized decorators |
-| [Exceptions](fundamentals/core_concepts/exceptions.md) | Propagation, `raise` variants, `raise from`, production patterns |
-| [Logging](fundamentals/core_concepts/logging/README.md) | Logger hierarchy, `propagate`, handler/formatter pipeline, per-module vs universal |
-| [Structured Logging](fundamentals/core_concepts/structlog_guide.md) | structlog, processors, FastAPI integration, request context |
-| [Configuration](fundamentals/core_concepts/configuration.md) | pydantic-settings, `.env` files, secrets, validation |
+| [Typing](fundamentals/core_concepts/typing.md) | Contracts, `TypedDict`, generics, protocols, `ParamSpec`, `Annotated` |
+| [Context Managers](fundamentals/core_concepts/context_managers.md) | Resource lifetimes, protocol mechanics, async managers, `ExitStack` |
+| [Decorators](fundamentals/core_concepts/decorators.md) | Rebinding and closures, metadata, parameters, async wrappers, stacking |
+| [Exceptions](fundamentals/core_concepts/exceptions.md) | Stack unwinding, precise catches, chaining, translation, boundary policy |
+| [Logging](fundamentals/core_concepts/logging/README.md) | Correct hierarchy mechanics, handlers, async queues, production topology |
+| [Structured Logging](fundamentals/core_concepts/structlog_guide.md) | Processor pipelines, unified stdlib JSON, FastAPI context, testing |
+| [Configuration](fundamentals/core_concepts/configuration.md) | Source precedence, pydantic-settings, secret delivery, validation, caching |
+| [Unix Signals](fundamentals/core_concepts/signals.md) | Python delivery, graceful shutdown deadlines, Uvicorn, container PID 1 |
 
 #### Concurrency & Parallelism
 
@@ -79,6 +80,7 @@ python-backend-notes/
 |-------|-------------|
 | [Decision Guide](fundamentals/concurrency/00_decision_guide.md) | When to use async, threads, processes, subinterpreters, or job queues |
 | [State and Safety](fundamentals/concurrency/01_state_and_safety.md) | Mutable state, sharing boundaries, thread safety, async safety, process safety |
+| [Alternative Runtimes](fundamentals/concurrency/02_alternative_runtimes.md) | Python 3.14 subinterpreters, free-threaded CPython, compatibility gates, and trade-offs |
 | [Asyncio](fundamentals/concurrency/async/README.md) | Event loop, tasks, `TaskGroup`, production async patterns, `contextvars` |
 | [Threads](fundamentals/concurrency/threads/README.md) | `ThreadPoolExecutor`, thread primitives, blocking I/O, shared memory |
 | [Processes](fundamentals/concurrency/processes/README.md) | `ProcessPoolExecutor`, pickling, start methods, CPU parallelism |
