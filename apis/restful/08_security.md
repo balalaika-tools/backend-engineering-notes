@@ -95,6 +95,38 @@ Apply this to members, nested resources, bulk items, file keys, job results, web
 
 For update/delete, include the authorization/concurrency scope in the atomic statement so a race cannot swap the checked object before mutation.
 
+### Where Tenant Identity Comes From
+
+Distinguish the *claimed* tenant (whatever the request presents) from the *authorized* tenant (what the principal is actually allowed to act as):
+
+- **Path** (`/tenants/{tenant_id}/orders`) — readable and easy to log, but purely an addressing detail. Never treat its presence as authorization.
+- **JWT claim** (`tenant_id` inside a signed access token) — the strongest source, since your own auth service issued it and it can't be forged without the signing key. Prefer this as the source of truth for human/user-driven requests.
+- **Header** (`X-Tenant-Id`) — common in service-to-service calls where the caller isn't a user with a token scoped to one tenant. Trust it only from an authenticated, allow-listed internal caller (e.g., a gateway), never from an arbitrary client.
+- **Subdomain** (`acme.api.example.com`) — convenient for multi-tenant SaaS routing and cache separation at the edge, but still just an address; resolve it to a tenant record and re-verify against the principal exactly like a path segment.
+
+Whichever source a request uses, re-derive the tenant from the authenticated principal and compare. If the path/header/subdomain tenant doesn't match the principal's tenant, reject the request — don't silently switch context to whatever was requested.
+
+### Defense in Depth: Database-Level Enforcement
+
+Row-level security (Postgres `CREATE POLICY`, or equivalent) enforces the tenant filter inside the database itself, keyed off a session variable the application sets after authentication:
+
+```sql
+CREATE POLICY tenant_isolation ON orders
+  USING (tenant_id = current_setting('app.tenant_id')::uuid);
+```
+
+This doesn't replace the `WHERE tenant_id = ...` check in application code — it's a second, independent layer that still holds if one query, one ORM shortcut, or a future change forgets the filter. RLS can't express authorization that isn't a row filter (e.g., "only admins may update `status`"), so keep it as a backstop, not a substitute for scoping every query explicitly.
+
+### What Makes a Tenant ID "Valid"
+
+A path template like `{tenant_id}` isn't enumerated — it matches any string (or whatever type/pattern you declare), so the space of possible values is unbounded by design. That's normal, not a scaling flaw: the route's *contract* is fixed and finite (one template), while a specific *request* is checked in layers:
+
+1. **Syntactic** — does the value match the declared type/pattern (a UUID regex, `Path(..., pattern=...)`)? A malformed ID fails at routing/parsing, before it touches the database.
+2. **Existence** — does a tenant with that ID exist at all? A well-formed but unknown ID should return a scoped not-found (see the test matrix below), not a 500 or a response shape that reveals which IDs are real.
+3. **Authorization** — does the *authenticated principal* have a relationship to that tenant? This is the BOLA check above — it answers "may this caller act as this tenant," not "is this ID well-formed."
+
+Conflating step 1 (the ID parsed) with step 3 (the caller may use it) is exactly the BOLA gap.
+
 ---
 
 ## 4. Function and Property Authorization
