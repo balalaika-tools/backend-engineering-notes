@@ -507,6 +507,24 @@ Binary files sent as part of a `multipart/form-data` request.
 
 Prefer `UploadFile` for anything beyond tiny files.
 
+### Request Example
+
+`multipart/form-data` splits the body into parts, each separated by a `boundary` string declared in the `Content-Type` header. Every part gets its own small header block (`Content-Disposition`, optionally its own `Content-Type`) followed by its raw content — this is how a single body carries a file's binary bytes alongside plain text fields without either corrupting the other.
+
+```
+POST /upload HTTP/1.1
+Host: api.example.com
+Content-Type: multipart/form-data; boundary=----WebKitBoundaryAbc123
+Content-Length: 218
+
+------WebKitBoundaryAbc123
+Content-Disposition: form-data; name="file"; filename="photo.jpg"
+Content-Type: image/jpeg
+
+<binary JPEG bytes>
+------WebKitBoundaryAbc123--
+```
+
 ### FastAPI Syntax
 
 ```python
