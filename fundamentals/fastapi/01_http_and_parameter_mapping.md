@@ -437,7 +437,10 @@ def endpoint(session_id: Annotated[str, Cookie()]):
 Data submitted as a **URL-encoded or multipart form** — the encoding used by HTML `<form>` elements.
 
 ```
+POST /login HTTP/1.1
+Host: api.example.com
 Content-Type: application/x-www-form-urlencoded
+Content-Length: 30
 
 username=alice&password=secret
 ```
