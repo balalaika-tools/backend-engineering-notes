@@ -113,12 +113,15 @@ Host: api.example.com                          ← header: target host
 Authorization: Bearer eyJhbGci...             ← header: auth token
 Content-Type: application/json                 ← header: body format
 Accept: application/json                       ← header: expected response format
+Cookie: session_id=abc123; theme=dark          ← header: cookies sent back to the server
                                                ← blank line separates headers from body
 {                                              ↓ body: structured JSON payload
   "item_id": 7,
   "quantity": 3
 }
 ```
+
+Cookies travel as an ordinary header (`Cookie:`), but FastAPI gives them their own parameter source — see [Part 5](#5-cookies) — because they're set and scoped differently from other headers (via `Set-Cookie` on a prior response, with domain/path/expiry rules).
 
 Each part maps to a different FastAPI parameter source, covered in the sections below.
 
