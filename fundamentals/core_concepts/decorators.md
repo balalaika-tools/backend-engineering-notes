@@ -48,6 +48,47 @@ original function.
 > **Key insight**: `@decorate` is rebinding syntax. Start by mentally expanding
 > it to `function = decorate(function)`.
 
+### Names carry no meaning to Python
+
+The names you will see throughout this note — `decorate`, `register`, `wrapper`
+— are conventions, not keywords. Python has no rule that a decorator's inner
+function must be called `wrapper`, and no rule that it must return a wrapper at
+all. This works identically:
+
+```python
+def command(name):
+    def banana(operation):        # any name; `register` is just clearer
+        COMMANDS[name] = operation
+        return operation
+
+    return banana
+```
+
+The only rule is the one above: whatever the callable returns becomes the new
+value of the decorated name. Everything else in this note follows from that.
+
+### Three shapes, one rule
+
+Almost every decorator you write is one of three shapes. They are not different
+language features — they differ only in **what the callable returns**.
+
+| Shape | Example | Returns | Effect on calls | Built in |
+|-------|---------|---------|-----------------|----------|
+| **Wrapper** | `@measure` | a new function that calls the original | behavior added around every call | §3–§6 |
+| **Factory** | `@repeat(times=3)` | a decorator, which then returns something | one extra definition-time layer that captures configuration | §7 |
+| **Passthrough** | `@command("health")` | the original function, unchanged | none — the whole point is a side effect at import time | §10 |
+
+One clarification that saves confusion later: **the factory shape is orthogonal
+to the other two.** Arguments in the `@` line tell you only that an extra layer
+exists, never what the innermost layer does. `@repeat(times=3)` is a factory that
+ends in a wrapper; `@command("health")` is a factory that ends in a passthrough.
+So when you read a decorator, count the layers *and* check the innermost return
+separately.
+
+Section 13 covers the shapes beyond these three — descriptors, class-based
+decorators, class decorators, and dual-form decorators — once the core mechanics
+are in place.
+
 ---
 
 ## 2. Why Functions Can Be Decorated
@@ -364,6 +405,16 @@ configured_decorator = repeat(times=3)
 refresh_cache = configured_decorator(refresh_cache)
 ```
 
+or as one line:
+
+```python
+refresh_cache = repeat(times=3)(refresh_cache)
+```
+
+`repeat` is a **decorator factory**: it is not itself a decorator, it builds
+one. `decorate` is the actual decorator — it is the layer that receives the
+function.
+
 The three layers have separate jobs:
 
 | Layer | Runs | Job |
@@ -374,6 +425,93 @@ The three layers have separate jobs:
 
 Validate decorator configuration in the outer function so invalid settings fail
 at import/startup, not on the first production request.
+
+### What runs when: prove it with prints
+
+A frequent misreading is that configuration is the thing that makes a decorator
+run code before the wrapper exists. It is not. **Both** forms run code at
+definition time; the configured form simply has one extra call in that phase.
+
+```python
+def announce(operation):
+    print("decorating")           # definition time — runs once
+
+    def wrapper():
+        print("before")           # call time — runs per call
+        result = operation()
+        print("after")
+        return result
+
+    return wrapper
+
+
+@announce
+def work() -> str:
+    return "done"
+```
+
+Executing the module prints `decorating` immediately. Nothing else prints until
+you call `work()`.
+
+Now the configured form, with each layer labelled:
+
+```python
+def repeat(times: int):
+    print("1. configuration received")
+
+    def decorate(operation):
+        print("2. function received")
+
+        @wraps(operation)
+        def wrapper():
+            print("3. wrapper called")
+            for _ in range(times):
+                operation()
+
+        return wrapper
+
+    return decorate
+
+
+@repeat(3)
+def hello() -> None:
+    print("hello")
+```
+
+Import time prints:
+
+```text
+1. configuration received
+2. function received
+```
+
+Only `hello()` prints:
+
+```text
+3. wrapper called
+hello
+hello
+hello
+```
+
+So the difference is one extra definition-time call, not the presence of
+definition-time work:
+
+```text
+No configuration:
+  decorator(function) → wrapper
+  wrapper()           → runtime behavior
+
+With configuration:
+  factory(config)     → decorator
+  decorator(function) → wrapper
+  wrapper()           → runtime behavior
+```
+
+This matters in practice because anything you do in the factory or the decorator
+body happens once, at import, before your app serves a request: config
+validation, metric registration, and route table entries belong there; anything
+that depends on a specific call belongs in `wrapper`.
 
 ---
 
@@ -475,6 +613,52 @@ inner wrapper: after
 outer wrapper: after
 ```
 
+Expand a stack one line at a time until only plain calls remain:
+
+```python
+original = handle_request
+inner_wrapper = inner(original)
+outer_wrapper = outer(inner_wrapper)
+handle_request = outer_wrapper
+```
+
+A runnable version, using one configured decorator twice:
+
+```python
+def trace(label: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    def decorate(operation: Callable[P, R]) -> Callable[P, R]:
+        @wraps(operation)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            print(f"{label}: before")
+            result = operation(*args, **kwargs)
+            print(f"{label}: after")
+            return result
+
+        return wrapper
+
+    return decorate
+
+
+@trace("OUTER")
+@trace("INNER")
+def process_order(order_id: int) -> str:
+    print(f"processing order {order_id}")
+    return "completed"
+
+
+process_order(42)
+```
+
+Output:
+
+```text
+OUTER: before
+INNER: before
+processing order 42
+INNER: after
+OUTER: after
+```
+
 Order changes behavior. Authentication should usually be outside expensive
 timing, caching, or transaction work when unauthorized calls must not trigger
 that work:
@@ -488,6 +672,74 @@ def load_dashboard(user_id: int) -> Dashboard:
 
 Read a stack from the function upward: the decorator closest to `def` wraps
 first.
+
+### Order matters most when one decorator captures a reference
+
+With two wrappers, order changes the sequence of behavior. With a **registration**
+decorator (Section 10) in the stack, order changes *which object* gets registered
+— and that is a real bug source. Given:
+
+```python
+COMMANDS: dict[str, Callable[[], str]] = {}
+
+
+def command(name: str):
+    def register(operation):
+        COMMANDS[name] = operation
+        return operation          # returns the same object it received
+
+    return register
+
+
+def log_call(operation):
+    @wraps(operation)
+    def wrapper():
+        print("starting")
+        result = operation()
+        print("finished")
+        return result
+
+    return wrapper
+```
+
+**Case A — `command` outermost (usually what you want):**
+
+```python
+@command("health")
+@log_call
+def health_check() -> str:
+    return "ok"
+
+# health_check = command("health")(log_call(health_check))
+```
+
+`log_call` builds the wrapper first, so `command` stores the wrapper.
+`COMMANDS["health"]` and the module-level `health_check` are the same object, and
+calling either one logs.
+
+**Case B — `command` innermost (a silent trap):**
+
+```python
+@log_call
+@command("health")
+def health_check() -> str:
+    return "ok"
+
+# health_check = log_call(command("health")(health_check))
+```
+
+`command` runs first and stores the *undecorated* function. Then the name
+`health_check` is rebound to the logging wrapper. So `health_check()` logs, but
+the dispatcher calling `COMMANDS["health"]()` gets the raw function and **no
+logging**. Nothing raises; the behavior is just quietly missing on the path that
+matters.
+
+The rule: put registration decorators outermost so they capture the fully
+decorated object. If you dispatch through a registry, assert what you registered:
+
+```python
+assert COMMANDS["health"] is health_check
+```
 
 ---
 
@@ -541,11 +793,26 @@ def health_check() -> str:
 
 
 assert COMMANDS["health"]() == "ok"
+assert COMMANDS["health"] is health_check      # same object, not a wrapper
 ```
 
-This registration happens when the module is imported. Framework route
-decorators use the same broad idea: attach or register metadata at definition
-time.
+Step by step, `@command("health")` expands to:
+
+```python
+register = command("health")          # factory returns the decorator
+health_check = register(health_check) # register stores it and hands it back
+```
+
+This is a genuine decorator even though no wrapper exists anywhere in it. It
+satisfies the only requirement — take the function, return the object to bind —
+and it changes nothing about how the function behaves when called. Its entire
+effect is the side effect: the function is now reachable through `COMMANDS`.
+
+This registration happens when the module is imported, which has a practical
+consequence: a command whose module is never imported is never registered. If a
+registry looks empty, suspect import wiring before suspecting the decorator.
+Framework route decorators (`@app.get(...)`) use the same broad idea: attach or
+register metadata at definition time.
 
 ---
 
@@ -640,13 +907,192 @@ def test_original_calculation_in_isolation() -> None:
 The second test is possible because `@wraps` installed `__wrapped__`. Do not use
 it to bypass security or transaction decorators in application code.
 
+---
+
+## 13. Reading Any Unfamiliar Decorator
+
+Do not try to classify a decorator by the names inside it. Use two mechanical
+steps.
+
+**Step 1 — expand until only calls remain.**
+
+```python
+@A
+@B(config=1)
+def operation():
+    ...
+```
+
+becomes:
+
+```python
+operation = A(B(config=1)(operation))
+```
+
+**Step 2 — ask what each layer returns.**
+
+| What you see | What it means |
+|--------------|---------------|
+| Called with arguments in the `@` line (`@repeat(3)`) | Outer callable is a factory; the decorator is the layer below it |
+| No arguments in the `@` line (`@measure`) | That callable *is* the decorator |
+| Returns a new inner function | Call behavior changes — arguments, result, and exceptions now pass through the wrapper |
+| Returns the function it received | Registration or metadata attachment; call behavior is unchanged |
+| Returns something else entirely | The name now refers to that object — e.g. `@property` yields a descriptor, not a function |
+
+Since Python 3.9 the `@` line accepts any expression, so you may also meet
+`@registry["health"]` or `@handlers[0].wrap` — one more reason to expand rather
+than pattern-match on names.
+
+### Beyond the three shapes
+
+The three shapes in Section 1 cover most application code. These five turn up in
+libraries and framework internals.
+
+**4. Metadata attachment.** A passthrough that tags the function instead of
+registering it. The tag is read later by a test runner, serializer, or router:
+
+```python
+def deprecated(reason: str):
+    def attach(operation):
+        operation.__deprecated__ = reason   # mutate, then hand back unchanged
+        return operation
+
+    return attach
+```
+
+Cheap and non-invasive: call behavior is untouched, so nothing can break at
+runtime. The cost is that the tag is invisible unless something looks for it.
+
+**5. Descriptor replacement.** `@property`, `@staticmethod`, `@classmethod`, and
+`functools.cached_property` do not return functions at all — they return
+descriptor objects, and attribute access on the class triggers the behavior.
+
+```python
+class Invoice:
+    @property
+    def total(self) -> float:
+        return 42.0
+
+
+assert Invoice().total == 42.0          # no parentheses — it is not a method
+```
+
+The rule still holds (`total = property(total)`), but the consequence is that the
+name is no longer callable. This is why `@classmethod` must be outermost when
+stacked (Section 10): a function decorator handed a `classmethod` object would
+receive a descriptor, not a function.
+
+**6. Class-based decorator.** Instead of a closure, use an object: `__init__`
+receives the function, `__call__` runs per call. Reach for this when the
+decorator needs real state or an inspectable API.
+
+```python
+from functools import wraps
+
+
+class CountCalls:
+    def __init__(self, operation):
+        self.operation = operation
+        self.calls = 0
+        wraps(operation)(self)      # copies metadata onto the instance
+
+    def __call__(self, *args, **kwargs):
+        self.calls += 1
+        return self.operation(*args, **kwargs)
+
+
+@CountCalls
+def ping() -> str:
+    return "pong"
+
+
+ping(); ping()
+assert ping.calls == 2
+assert ping.__name__ == "ping"
+```
+
+⚠️ **The trap**: this breaks on methods. A plain function stored as a class
+attribute implements the descriptor protocol and binds `self`; your instance does
+not, so `self` is never passed:
+
+```python
+class BillingService:
+    @CountCalls
+    def charge(self, amount: float) -> float:
+        return amount
+
+
+BillingService().charge(5.0)
+# TypeError: charge() missing 1 required positional argument: 'amount'
+#   — 5.0 was bound to `self`, because nothing bound the instance
+```
+
+Fixing it means implementing `__get__` to return a bound partial. Unless you need
+the object, a closure-based decorator is the simpler default — and the shared
+counter above has the concurrency problem described in Section 11.
+
+**7. Class decorators.** The decorated object does not have to be a function.
+`@dataclass` and `@functools.total_ordering` take a class and return one, usually
+the same class with attributes added:
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass          # Invoice = dataclass(Invoice)
+class Invoice:
+    invoice_id: str
+    amount: float
+```
+
+Same transformation, different input type. Prefer a class decorator over
+metaclasses or inheritance when you only need to add or adjust class attributes.
+
+**8. Dual-form decorator.** Usable both bare and configured. Supporting both
+means detecting which call you received:
+
+```python
+def retry(operation=None, *, attempts: int = 3):
+    def decorate(op):
+        @wraps(op)
+        def wrapper(*args, **kwargs):
+            ...
+            return op(*args, **kwargs)
+
+        return wrapper
+
+    if operation is None:      # called as @retry(attempts=5)
+        return decorate
+    return decorate(operation)  # called as @retry
+```
+
+The keyword-only `*` is what makes this safe: it prevents `@retry(5)` from being
+read as "decorate the function `5`". Worth the branch in a public library where
+both spellings are expected; in application code, pick one form and stay
+consistent.
+
+That is the whole catalogue, because the rule was never "a decorator has a
+wrapper". The rule is:
+
+```python
+decorated_name = decorator(original_object)
+```
+
+A wrapper is simply the most common way to satisfy it when you want behavior
+before and after each call.
+
+---
+
 > **Mental model**:
 >
 > 1. `@decorator` means `name = decorator(name)`.
-> 2. Decoration usually runs once at definition time.
-> 3. The returned wrapper runs on every call.
-> 4. A closure lets the wrapper remember the original function and configuration.
-> 5. `@wraps`, correct argument forwarding, async awareness, and exception
+> 2. Decoration runs once at definition time; a configured decorator just adds
+>    one more definition-time call to capture the configuration.
+> 3. The returned wrapper runs on every call — if a wrapper is returned at all.
+> 4. Inner names are arbitrary. Classify a decorator by what each layer returns,
+>    not by what it is called.
+> 5. A closure lets the wrapper remember the original function and configuration.
+> 6. `@wraps`, correct argument forwarding, async awareness, and exception
 >    transparency keep the contract intact.
 
 ---
