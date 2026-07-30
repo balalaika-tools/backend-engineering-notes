@@ -86,8 +86,11 @@ So when you read a decorator, count the layers *and* check the innermost return
 separately.
 
 Section 13 covers the shapes beyond these three — descriptors, class-based
-decorators, class decorators, and dual-form decorators — once the core mechanics
-are in place.
+decorators, class decorators, and dual-form decorators. Section 14 covers cases
+where a decorator overlaps with another Python protocol entirely — bound-method
+factories (`@app.get(...)`), decorators that carry further decorators
+(`@render.register`), and decorators that double as context managers
+(`@contextmanager`). Both build on the core mechanics established first.
 
 ---
 
@@ -812,7 +815,8 @@ This registration happens when the module is imported, which has a practical
 consequence: a command whose module is never imported is never registered. If a
 registry looks empty, suspect import wiring before suspecting the decorator.
 Framework route decorators (`@app.get(...)`) use the same broad idea: attach or
-register metadata at definition time.
+register metadata at definition time. Section 14 covers how `app.get` itself is
+built — a decorator factory implemented as a bound method.
 
 ---
 
@@ -1080,6 +1084,154 @@ decorated_name = decorator(original_object)
 
 A wrapper is simply the most common way to satisfy it when you want behavior
 before and after each call.
+
+---
+
+## 14. Where Decorators Blur Into Other Protocols
+
+The eight shapes above cover any *single* decorator. These three combine
+decorators with other Python protocols in ways that look unfamiliar the first
+time you meet them — most framework code you copy-paste without understanding
+is one of these three.
+
+### A decorator can be a bound method
+
+`@app.get("/health")`, `@app.exception_handler(RequestValidationError)`, and
+similar framework calls are not special syntax. `app` is an ordinary instance,
+and `get`/`exception_handler` are ordinary instance methods that happen to
+return a decorator:
+
+```python
+class Router:
+    def __init__(self):
+        self.routes: dict[str, Callable] = {}
+
+    def get(self, path: str):
+        def decorate(func):
+            self.routes[path] = func      # self is captured in the closure
+            return func
+
+        return decorate
+
+
+app = Router()
+
+
+@app.get("/health")
+def health() -> str:
+    return "ok"
+
+
+assert app.routes["/health"] is health
+```
+
+`app.get` binds `self` the moment you write it, before the call even happens —
+ordinary attribute lookup on an instance. `app.get("/health")` then runs exactly
+like `command("health")` from Section 10, except the registry (`self.routes`)
+lives on the object instead of being a bare module-level dict. This is the whole
+trick behind `@app.get`, `@app.post`, `@app.exception_handler`, and
+`@app.middleware` in most Python web frameworks: **decorator factory, implemented
+as a method, storing into `self`.**
+
+### A decorator's return value can carry more decorators
+
+`functools.singledispatch` returns a dispatcher function — and that dispatcher
+has its own `.register` attribute, which is *itself* a decorator you stack on
+other functions:
+
+```python
+from functools import singledispatch
+
+
+@singledispatch
+def render(value: object) -> str:
+    return f"generic:{value}"
+
+
+@render.register
+def _(value: int) -> str:
+    return f"int:{value}"
+
+
+@render.register
+def _(value: str) -> str:
+    return f"str:{value}"
+
+
+assert render(5) == "int:5"
+assert render("x") == "str:x"
+assert render(3.2) == "generic:3.2"       # no handler registered for float
+```
+
+Nothing new is happening mechanically — `render.register` is found by normal
+attribute lookup, exactly like `app.get` above — but it reads as a decorator
+spawning more decorators, and picking the right overload by argument *type*
+rather than by name is unusual enough to be worth calling out on its own.
+
+A related trick: a decorator's wrapper can expose extra callable attributes
+alongside the call behavior. `functools.lru_cache` does this — the object it
+returns is callable *and* has `.cache_info()` and `.cache_clear()`:
+
+```python
+from functools import lru_cache
+
+
+@lru_cache(maxsize=2)
+def add(a: int, b: int) -> int:
+    return a + b
+
+
+add(1, 2)
+add(1, 2)
+add(3, 4)
+assert add.cache_info().hits == 1
+add.cache_clear()
+assert add.cache_info().hits == 0
+```
+
+If you build a decorator others will rely on operationally (cache, retry,
+circuit breaker), consider exposing an inspection or reset hook the same way —
+`wrapper.reset = ...` before `return wrapper` — instead of forcing callers to
+reach into the closure.
+
+### A decorator can double as a context manager
+
+`contextlib.contextmanager` turns a generator function into a context manager,
+and the object it returns also implements `ContextDecorator` — so the exact same
+object works with `with` *and* with `@`:
+
+```python
+from contextlib import contextmanager
+
+
+@contextmanager
+def transaction():
+    print("BEGIN")
+    try:
+        yield "conn"
+    finally:
+        print("COMMIT")
+
+
+with transaction() as conn:
+    print("using", conn)
+
+
+@transaction()
+def do_work() -> None:
+    print("working")
+
+
+do_work()
+```
+
+Both calls print `BEGIN`, the body, then `COMMIT`. The difference: `with`
+gives you the yielded value (`conn`); `@transaction()` runs the whole function
+inside the block but discards the yielded value, since there is no `as` target.
+Reach for `@contextmanager` over a hand-rolled decorator whenever the "before" and
+"after" halves are more natural to write as one function with a `yield` in the
+middle — see [context_managers.md](context_managers.md) for the full mechanics of
+`__enter__`/`__exit__`.
 
 ---
 
