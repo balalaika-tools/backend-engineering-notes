@@ -214,19 +214,22 @@ User-Agent: Chrome
 ### FastAPI Syntax
 
 ```python
+from typing import Annotated
 from fastapi import Header
 
 @app.get("/secure")
-def endpoint(authorization: str = Header(...)):
+def endpoint(authorization: Annotated[str, Header()]):
     ...
 ```
 
 You can use `alias` for non-Pythonic header names:
 
 ```python
-def endpoint(token: str = Header(alias="X-Custom-Token")):
+def endpoint(token: Annotated[str, Header(alias="X-Custom-Token")]):
     ...
 ```
+
+> **`Header()` is not dependency injection.** It is a *parameter-source marker* — it tells FastAPI "read this value from the request headers," the same way `Query()`, `Path()`, `Cookie()`, `Body()`, `Form()`, and `File()` mark where a value comes from. All of these are resolved from the incoming request every time. `Depends()` is a different mechanism: it runs a callable (often to build a shared resource like a DB session or the current user) and injects its return value. A parameter can even combine both ideas — a dependency function can itself declare `Header()`/`Cookie()` parameters — but `Header()` alone never triggers dependency resolution. See [02_dependency_injection.md](02_dependency_injection.md) for how `Depends()` actually works.
 
 ---
 
@@ -418,7 +421,13 @@ async def upload_many(files: Annotated[list[UploadFile], File()]):
 
 ## Part 2: FastAPI Parameter Resolution
 
-FastAPI does **not guess** where data comes from. It follows **strict rules** based on your function signature.
+FastAPI does **not guess** where data comes from. For each parameter it inspects the **name, type, and default/annotation**, in this priority order:
+
+1. Is there an explicit source marker (`Query`, `Path`, `Header`, `Cookie`, `Body`, `Form`, `File`) — via `Annotated[...]` or as the default value? Use that source, full stop.
+2. Otherwise, is there a `Depends(...)` default? Resolve it as a dependency (see [02_dependency_injection.md](02_dependency_injection.md)) — it is not a request-data source at all.
+3. Otherwise, is the type a Pydantic model (or `dataclass`/`TypedDict`)? Treat it as JSON request body.
+4. Otherwise, does the parameter name match a `{placeholder}` in the route path? Treat it as a path parameter.
+5. Otherwise, it's a query parameter — required if there's no default, optional if there is one.
 
 These rules apply to:
 
@@ -568,11 +577,12 @@ FastAPI correctly routes each parameter based on the rules above.
 
 FastAPI's parameter mapping is **deterministic**:
 
-1. Check for explicit annotations (`Header`, `Query`, `Path`, `Body`, `Cookie`, `Form`, `File`)
-2. If Pydantic model → body
-3. If in path template → path parameter
-4. If has default → query parameter
-5. Otherwise → required query parameter
+1. Check for explicit source markers (`Header`, `Query`, `Path`, `Body`, `Cookie`, `Form`, `File`)
+2. Check for `Depends(...)` → dependency injection, not request data at all
+3. If Pydantic model → body
+4. If in path template → path parameter
+5. If has default → query parameter
+6. Otherwise → required query parameter
 
 **Mutual exclusions to remember:**
 

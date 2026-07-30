@@ -289,6 +289,30 @@ Use `Annotated` when metadata belongs to the type at a framework boundary.
 Keep ordinary business functions explicit rather than assuming annotations
 validate every call.
 
+FastAPI uses this same mechanism for a second purpose: telling it *where* a route
+parameter's value comes from in the HTTP request — not just how to validate it.
+
+```python
+from typing import Annotated
+
+from fastapi import Header, Path, Query
+
+def endpoint(
+    user_id: Annotated[int, Path()],
+    limit: Annotated[int, Query(gt=0, le=100)] = 20,
+    token: Annotated[str, Header()] = ...,
+): ...
+```
+
+`Path()`, `Query()`, `Header()`, `Cookie()`, `Body()`, `Form()`, and `File()` are
+parameter-source markers — the second slot in `Annotated` — while the first slot
+stays the plain type a checker sees. This is unrelated to `Depends()`: a
+`Depends(...)` default means "call this function and inject its return value,"
+not "read this value from part of the request." See
+[../fastapi/01_http_and_parameter_mapping.md](../fastapi/01_http_and_parameter_mapping.md)
+for the full resolution order FastAPI applies across path, query, header, cookie,
+body, form, file, and dependency parameters.
+
 ---
 
 ## 11. `Final` and `ClassVar`
