@@ -269,6 +269,125 @@ def endpoint(product: ProductCreate):
     ...
 ```
 
+### Beyond JSON: Other Body Encodings
+
+`Content-Type` is just a label on whatever bytes follow the blank line — JSON and forms are the two encodings FastAPI parses for you automatically. Anything else, you read the raw body yourself and decode it. This matters whenever you're integrating with something that doesn't speak JSON: legacy SOAP/XML systems, binary sensor data, gRPC/protobuf services, or a client that streams a raw file as the entire body instead of wrapping it in `multipart/form-data`.
+
+To get the raw, unparsed body, drop the `BaseModel`/`Form` parameter and take the `Request` object instead:
+
+```python
+from fastapi import Request
+
+@app.post("/raw")
+async def endpoint(request: Request):
+    raw_bytes: bytes = await request.body()
+    ...
+```
+
+Once you have `raw_bytes`, decoding is on you — FastAPI does not know or care what's inside.
+
+#### `application/octet-stream` — arbitrary binary
+
+```
+POST /sensors/42/readings HTTP/1.1
+Host: api.example.com
+Content-Type: application/octet-stream
+Content-Length: 8
+
+<8 raw bytes, e.g. a packed struct>
+```
+
+```python
+import struct
+from fastapi import Request
+
+@app.post("/sensors/{sensor_id}/readings")
+async def ingest_reading(sensor_id: int, request: Request):
+    body = await request.body()
+    temperature, humidity = struct.unpack(">ff", body)  # big-endian, two 4-byte floats
+    return {"sensor_id": sensor_id, "temperature": temperature, "humidity": humidity}
+```
+
+No structure is implied by the content type itself — `octet-stream` just means "bytes, interpret them yourself." Document the exact byte layout somewhere, since nothing in the request enforces it.
+
+#### `text/plain` — unstructured text
+
+```
+POST /logs HTTP/1.1
+Host: api.example.com
+Content-Type: text/plain
+Content-Length: 27
+
+build failed: exit code 1
+```
+
+```python
+from fastapi import Request
+
+@app.post("/logs")
+async def ingest_log(request: Request):
+    body = await request.body()
+    line = body.decode("utf-8")
+    return {"received_chars": len(line)}
+```
+
+#### `application/xml` — legacy/enterprise integrations
+
+FastAPI has no built-in XML support; you parse the body with the standard library or a package like `lxml`.
+
+```
+POST /orders HTTP/1.1
+Host: api.example.com
+Content-Type: application/xml
+Content-Length: 78
+
+<order><item_id>7</item_id><quantity>3</quantity></order>
+```
+
+```python
+from xml.etree import ElementTree
+from fastapi import Request
+
+@app.post("/orders")
+async def create_order_from_xml(request: Request):
+    body = await request.body()
+    root = ElementTree.fromstring(body)
+    item_id = int(root.findtext("item_id"))
+    quantity = int(root.findtext("quantity"))
+    return {"item_id": item_id, "quantity": quantity}
+```
+
+`xml.etree.ElementTree` resolves external entities by default in some Python versions and third-party XML libraries — an XXE injection risk if the body comes from an untrusted client. Prefer `defusedxml` over raw `ElementTree`/`lxml` for any XML you didn't generate yourself.
+
+#### `application/x-protobuf` / gRPC — binary structured data
+
+Used when you need compact, schema-enforced binary payloads (internal service-to-service calls, high-throughput pipelines) instead of JSON's text overhead. Requires a compiled `.proto` schema; FastAPI itself is protocol-agnostic here.
+
+```
+POST /events HTTP/1.1
+Host: api.example.com
+Content-Type: application/x-protobuf
+Content-Length: 23
+
+<23 raw protobuf-encoded bytes>
+```
+
+```python
+from fastapi import Request
+from myapp.generated import event_pb2  # compiled from event.proto
+
+@app.post("/events")
+async def ingest_event(request: Request):
+    body = await request.body()
+    event = event_pb2.Event()
+    event.ParseFromString(body)
+    return {"event_id": event.id, "type": event.type}
+```
+
+For a full gRPC service (as opposed to a single protobuf-over-HTTP endpoint), use `grpc.aio` instead of FastAPI's HTTP routing — gRPC has its own transport (HTTP/2 streaming, generated stubs) that doesn't map onto `@app.post`.
+
+> **When to reach for raw body parsing vs. a model:** if the format has a native Python parser (JSON, form-urlencoded), let FastAPI/Pydantic handle it — you get validation, docs, and error responses for free. Drop to `Request.body()` only when the encoding is something FastAPI doesn't know about; you lose automatic validation and OpenAPI schema generation for that endpoint, so validate the decoded structure yourself before using it.
+
 ---
 
 ## 5. Cookies
