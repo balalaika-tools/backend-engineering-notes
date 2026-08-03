@@ -1,222 +1,125 @@
-# Task Execution Strategies — Overview
+# Background Work Is Several Separate Systems
 
-Three tools, three jobs. Pick the right one.
-
----
-
-## 1. Dramatiq (Distributed Background Workers)
-
-**What it is:** A simple, reliable distributed task processing library for Python. Think of it as "Celery but without the pain."
-
-### Architecture
-
-```
-Client (FastAPI)
-    │
-    ▼
-Broker (Redis or RabbitMQ)
-    │
-    ▼
-Dramatiq Worker(s)   ← separate process(es), possibly on different machines
-```
-
-The FastAPI process **enqueues a message** (serialized function call). One or more Dramatiq worker processes **consume messages** and execute the corresponding function. The broker sits in the middle as a durable queue.
-
-### Key Characteristics
-
-- **Separate processes** — workers run independently from your API server
-- **Survives restarts** — messages live in the broker; if a worker dies, another picks up the work
-- **Retries with backoff** — built-in exponential backoff, configurable per-task
-- **Time limits** — kill tasks that run too long
-- **Rate limiting** — control concurrency against external APIs
-- **Horizontal scaling** — add more worker processes or machines as load grows
-
-### Pros
-
-- Simple, Pythonic API (`@dramatiq.actor` + `.send()`)
-- Sensible defaults out of the box (retries, timeouts, logging)
-- Good error handling and dead-letter queues
-- Lightweight — no bloated dependency tree
-- First-class support for pipelines and groups
-
-### Cons
-
-- Requires broker infrastructure (Redis or RabbitMQ)
-- Workers are synchronous by default (use threads, not async)
-- Smaller ecosystem than Celery (fewer third-party integrations)
-
-### Use When
-
-- Tasks are **critical** and must not be lost (payment processing, document generation)
-- Execution time ranges from **seconds to hours**
-- Tasks are **CPU-heavy** or call **slow external APIs**
-- You need **retries and delivery guarantees**
-- You run **multiple API instances** and tasks must execute exactly once
+> **Who this is for**: Backend engineers choosing how to run work after an API request or on a schedule.
 
 ---
 
-## 2. FastAPI BackgroundTasks
+## 1. Start with the responsibility, not the framework
 
-**What it is:** Built-in fire-and-forget task execution that runs **inside your FastAPI process**.
+A request returns, but document generation still needs ten minutes. The first design question is not “Celery or Dramatiq?” It is which responsibilities the system must provide: durable state, pending-work delivery, execution, timing, or multi-step coordination.
 
-### How It Works
+For a simple email, a queue and a worker may be enough. For a workflow that pauses for approval and resumes tomorrow, the system also needs persistent workflow state and a transition protocol. Adding a scheduler does not create either one.
 
-```python
-from fastapi import BackgroundTasks
+> **The near-miss**: “background task,” “long-running task,” and “workflow” sound like sizes of the same thing. Duration is only one dimension. A two-second payment workflow may need durable business state; a two-hour idempotent image conversion may still be one task.
 
-@app.post("/send-email")
-async def send_email(background_tasks: BackgroundTasks):
-    background_tasks.add_task(actually_send_email, "user@example.com")
-    return {"status": "queued"}
+---
+
+## 2. Ten concepts cover different failure boundaries
+
+Start with the **six core responsibilities** in bold; the remaining four concepts refine them when the problem needs them.
+
+| Concept                      | Responsibility                                                        | Durable by itself?                  |
+| ---------------------------- | --------------------------------------------------------------------- | ----------------------------------- |
+| **Background task**    | One unit of work run outside the initiating request                   | No                                  |
+| Long-running task            | A task whose duration affects timeouts, shutdown, leases, or progress | No                                  |
+| **Stateful workflow**  | Several steps whose progress and decisions must survive restarts      | Only with persistent state          |
+| State machine                | Defines allowed workflow states and transitions                       | No; it is a model                   |
+| Job/task record              | Records one execution request, attempt, status, and error             | Yes, if persisted                   |
+| **Queue or broker**    | Holds and delivers pending work to consumers                          | Only if configured for it           |
+| **Worker**             | Claims work and executes a step                                       | No                                  |
+| **Scheduler**          | Decides when a job or workflow should be created                      | Depends on its store                |
+| **Workflow engine**    | Persists and coordinates steps, timers, signals, retries, or history  | Normally yes                        |
+| Human-in-the-loop checkpoint | Pauses before a decision or side effect and resumes with input        | Only with persistent workflow state |
+
+A framework may cover several rows, but the rows do not collapse into one. Celery and Dramatiq provide task publication and worker runtimes; APScheduler focuses on timing; a durable workflow engine coordinates persisted progress.
+
+"Only if configured for it" is the row that most often surprises people, so it is worth naming the three concrete cases:
+
+- **RabbitMQ** — durability is opt-in and needs all three of a durable (quorum) queue, messages published as persistent, and publisher confirms. Miss any one and a broker restart or a failed publish loses work silently.
+- **Redis-backed transports** — Redis has no native acknowledgement, so these emulate it with a *visibility timeout*: a claimed message becomes visible again after a fixed period. Work that outlives the timeout is redelivered while the first worker is still running it, and unclean shutdowns can drop it entirely.
+- **Amazon SQS** — durable and replicated by default; the thing you configure is the visibility timeout, not the durability.
+
+Sources: [RabbitMQ quorum queues](https://www.rabbitmq.com/docs/quorum-queues), [Celery Redis broker notes](https://docs.celeryq.dev/en/stable/getting-started/backends-and-brokers/redis.html) (checked 2026-08-03). [Queue and Worker Architectures](04_queue_and_worker_architectures.md) §4 works through the consequences.
+
+> **Key insight**: Queue state answers “what delivery is pending?” Workflow state answers “what does the business process mean now?” One cannot safely stand in for the other.
+
+---
+
+## 3. Keep three state domains separate
+
+Suppose an approval workflow is generating a report. At one moment it can have all three of these states:
+
+```text
+Business/workflow state: WAITING_FOR_HUMAN_REVIEW
+Task execution state:    generation attempt 2 = FAILED
+Queue-delivery state:    retry message = VISIBLE
 ```
 
-- If the task function is `async def` → runs on the **same event loop** (cooperative multitasking)
-- If the task function is a plain `def` → runs in a **threadpool** (`anyio` worker thread)
+| State domain      | Typical values                                                      | Authoritative owner                |
+| ----------------- | ------------------------------------------------------------------- | ---------------------------------- |
+| Business/workflow | `NEW`, `WAITING_FOR_HUMAN_REVIEW`, `COMPLETED`, `CANCELLED`  | Domain database or workflow engine |
+| Task execution    | `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`, attempt number | Job table or task runtime          |
+| Queue delivery    | ready, leased/in-flight, acknowledged, redelivered, dead-lettered   | Queue or broker                    |
 
-### Pros
-
-- Zero configuration — nothing to install, no broker, no extra process
-- Simple API — just `add_task(fn, *args)`
-- Access to the same in-memory state as your request handlers
-- Perfect for lightweight post-response work
-
-### Cons
-
-- **Dies on restart** — if the process crashes, queued tasks are lost forever
-- **No retries** — if the task fails, it fails silently
-- **Shares resources** — CPU-heavy tasks block your event loop or exhaust your threadpool
-- **No visibility** — no dashboard, no task status, no result storage
-- **No horizontal scaling** — task runs on whichever instance received the request
-
-### Use When
-
-- Sending **notification emails** or **webhooks** after a response
-- **Logging** or **analytics** that is nice-to-have but not critical
-- Tasks complete in **under a few seconds**
-- You are running a **single instance** or don't care about task loss
+An acknowledged message does not prove that a payment was recorded. A `COMPLETED` workflow does not prove that every old duplicate message has disappeared. Define a contract for how workers translate delivery events into atomic business transitions.
 
 ---
 
-## 3. AsyncIOScheduler (APScheduler)
+## 4. The normal data flow uses IDs, not copied authority
 
-**What it is:** An in-process job scheduler. It decides **when** to run something, not **where** or **how safely**.
-
-### How It Works
-
-```python
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-scheduler = AsyncIOScheduler()
-
-@scheduler.scheduled_job('cron', hour=3, minute=0)
-async def nightly_cleanup():
-    await delete_expired_sessions()
-
-scheduler.start()  # runs inside the same event loop as FastAPI
+```text
+Client ──POST /runs──► API / publisher
+                         │
+                         ├──transaction──► domain DB: workflow + job/outbox
+                         │
+                         └──publish──────► queue/broker: {run_id, step_id, expected_version}
+                                                    │
+                                                    ▼
+                                                Worker
+                                                    │
+                                                    ├──load current state──► DB
+                                                    ├──perform side effect
+                                                    └──conditional update─► DB
 ```
 
-### Pros
+The message should usually carry identifiers, an idempotency key, and the expected state or version. It should not carry a stale copy of the entire authoritative domain object. The worker reloads current state and refuses work whose precondition no longer holds.
 
-- **Cron-like scheduling** — intervals, cron expressions, one-time dates
-- **Async-native** — `AsyncIOScheduler` runs coroutines directly on the event loop
-- **No external dependencies** — no broker, no extra processes
-- Persistent job stores available (SQLAlchemy, Redis)
-
-### Cons
-
-- **Shares the event loop** — a slow scheduled job blocks your API
-- **No retries** — if a job fails, it just logs an error
-- **No horizontal scaling** — the scheduler runs inside one process
-- **Duplicate execution in multi-instance** — if you run 3 pods, the job runs 3 times
-- **Not a task queue** — no message passing, no result backend, no priorities
-
-### Use When
-
-- **Periodic maintenance** — cleanup expired tokens, rotate logs
-- **Cache refresh** — warm caches on a schedule
-- **Health checks** — ping external services periodically
-- You run a **single instance** or handle deduplication yourself
+Success is visible as a traceable chain from `workflow_run_id` to `step_id`, job attempt, message ID, worker, and resulting transition. A task that runs but cannot be correlated back to a durable record is only partially observable.
 
 ---
 
-## Comparison Table
+## 5. Choose durability independently from concurrency
 
-| Feature | BackgroundTasks | APScheduler | Dramatiq | Airflow |
-|---|---|---|---|---|
-| **Execution model** | In-process | In-process | Separate worker processes | Separate platform (scheduler + executor) |
-| **Scheduling** | Immediate (fire-and-forget) | Cron / interval / date | Immediate + optional delay | Cron + catchup + data-aware |
-| **Task dependencies** | None | None | Basic pipelines | Full DAGs (fan-out, fan-in, branching) |
-| **Survives restart** | No | No (memory store) | Yes (messages in broker) | Yes (metadata DB) |
-| **Retries** | No | No | Yes (configurable backoff) | Yes (per-task, with SLA) |
-| **Time limits** | No | No | Yes | Yes (execution_timeout + dagrun_timeout) |
-| **Rate limiting** | No | No | Yes | Via pool slots |
-| **Result tracking** | No | No | Yes (Redis) | Yes (XCom + metadata DB) |
-| **Multi-instance safe** | N/A | No (duplicates) | Yes | Yes (single scheduler) |
-| **Horizontal scaling** | No | No | Yes (add workers) | Yes (Celery/K8s executor) |
-| **Infrastructure** | None | None | Redis or RabbitMQ | Scheduler + web server + PostgreSQL |
-| **Monitoring** | None | None | Dashboard, Prometheus | Rich web UI, Gantt charts, logs |
-| **Best for** | Quick post-response work | Periodic/scheduled tasks | Reliable distributed work | Multi-step pipelines, ETL, ML workflows |
+Two decisions are often accidentally tied together:
+
+1. **How work is delivered** — in-process background hook, database job table, broker, managed queue, or workflow engine.
+2. **How work executes** — process, thread, coroutine, external compute service, or a mixture.
+
+A managed queue can feed native `asyncio` workers. A database-backed queue can feed process workers. Celery can use prefork or threads. The transport does not decide whether a workload is CPU-bound or I/O-bound.
+
+See [Task Execution Models](05_task_execution_models.md) for the execution decision and [Queue and Worker Architectures](04_queue_and_worker_architectures.md) for the delivery decision.
 
 ---
 
-## Why Not Celery?
+## 6. Escalate only when a simpler boundary fails
 
-Celery is the most well-known Python task queue, but it carries significant baggage:
+The first four rows are the normal starting points; engines and orchestrators are for workflows whose persisted coordination justifies another platform.
 
-- **Complex configuration** — dozens of settings with confusing names (`task_acks_late`, `worker_prefetch_multiplier`, `broker_transport_options`)
-- **Memory leaks** — long-running workers are notorious for growing memory usage over time
-- **Poor async story** — bolted-on async support that doesn't integrate cleanly
-- **Heavy dependency tree** — pulls in many transitive dependencies
-- **Surprising defaults** — tasks acknowledge before execution by default (so failures lose messages)
+| Need                                                             | Smallest reasonable mechanism                      |
+| ---------------------------------------------------------------- | -------------------------------------------------- |
+| Best-effort post-response work                                   | In-process background hook                         |
+| Durable independent task                                         | Queue or job table plus worker                     |
+| Periodic creation of work                                        | Scheduler creates an idempotent job                |
+| Several fixed stages                                             | Persistent domain state plus jobs; broker optional |
+| Long-lived timers, pause/resume, approval, compensation, history | Durable workflow engine or checkpointed graph      |
+| Data pipeline with scheduled dependencies and backfills          | Data orchestrator such as Airflow                  |
 
-Dramatiq covers **95% of Celery's use cases** with a simpler API and better defaults. Consider Celery only if:
-- You need **canvas** (complex task workflows: chains, chords, groups with callbacks)
-- You have an **existing Celery infrastructure** and the migration cost is too high
-- You need a specific Celery-only integration (e.g., `django-celery-beat`)
+⚠️ In-process background work disappears when the web process exits and competes with request handling. Use it only when losing the work is acceptable.
 
----
+⚠️ A broker retry can repeat an external side effect. Delivery guarantees become business guarantees only after idempotency and atomic state transitions are added.
 
-## Mental Model
-
-> **BackgroundTasks** = "run this later, inside FastAPI"
->
-> **APScheduler** = "run this at a specific time"
->
-> **Dramatiq** = "run this safely, somewhere else"
->
-> **Airflow** = "run these steps in the right order, on a schedule, with a dashboard"
-
-If you are unsure, start with **BackgroundTasks**. When you outgrow it (need retries, survive restarts, or scale workers), move to **Dramatiq**. Use **APScheduler** only for the scheduling question — and even then, consider having it enqueue Dramatiq tasks rather than doing the work itself. Reach for **Airflow** when you have multi-step workflows with dependencies between tasks (ETL pipelines, ML training, data quality checks).
+Do not introduce a queue merely to move a cheap, non-critical operation out of the request. Do not introduce a workflow engine for one independent idempotent task. Each extra runtime adds deployment, monitoring, and recovery work.
 
 ---
 
-## Decision Flowchart
-
-```
-Does the task have dependencies on other tasks (DAG)?
-├── Yes → Airflow
-└── No
-    ├── Is the task critical (must not be lost)?
-    │   ├── Yes → Dramatiq
-    │   └── No
-    │       ├── Does it need to run on a schedule?
-    │       │   ├── Yes → APScheduler (or APScheduler → Dramatiq for heavy work)
-    │       │   └── No
-    │       │       ├── Will it take < 5 seconds?
-    │       │       │   ├── Yes → BackgroundTasks
-    │       │       │   └── No → Dramatiq
-    │       │       └──
-    │       └──
-    └──
-```
-
----
-
-## Final Rule of Thumb
-
-> **Web servers handle requests.**
-> **Workers handle work.**
-> **Schedulers handle timing.**
-> **Orchestrators handle dependencies.**
-
-Mixing these responsibilities leads to scaling and reliability issues.
+**Next**: [Part 2: When a Task Becomes a Workflow](02_when_a_task_becomes_a_workflow.md)

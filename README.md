@@ -8,7 +8,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg?logo=postgresql&logoColor=white)](https://www.postgresql.org)
 [![Redis](https://img.shields.io/badge/Redis-7.x-DC382D.svg?logo=redis&logoColor=white)](https://redis.io)
 [![Pydantic](https://img.shields.io/badge/Pydantic-v2-E92063.svg)](https://pydantic.dev)
-[![Dramatiq](https://img.shields.io/badge/Dramatiq-1.17+-7B4EA6.svg)](https://dramatiq.io)
+[![Dramatiq](https://img.shields.io/badge/Dramatiq-task_queue-7B4EA6.svg)](https://dramatiq.io)
 
 ---
 
@@ -37,7 +37,7 @@ python-backend-notes/
 │   └── redis/             Data structures, caching, pub/sub, Python clients
 │
 │ ── BACKGROUND WORK ─────────────────────────────────────
-├── background_work/       Dramatiq, APScheduler, Airflow, FastAPI BackgroundTasks
+├── background_work/       Task/workflow architecture, reliability, execution, and frameworks
 │
 │ ── ADVANCED ARCHITECTURE ───────────────────────────────
 ├── architecture/
@@ -206,17 +206,25 @@ python-backend-notes/
 
 ### Background Work — [full README](background_work/README.md)
 
-[![Dramatiq](https://img.shields.io/badge/Dramatiq-1.17+-7B4EA6.svg)](https://dramatiq.io)
-[![APScheduler](https://img.shields.io/badge/APScheduler-3.x-4B8BBE.svg)](https://apscheduler.readthedocs.io)
-[![Airflow](https://img.shields.io/badge/Airflow-2.10+-017CEE.svg?logo=apacheairflow&logoColor=white)](https://airflow.apache.org)
+[![Celery](https://img.shields.io/badge/Celery-task_queue-37814A.svg)](https://docs.celeryq.dev/)
+[![Dramatiq](https://img.shields.io/badge/Dramatiq-task_queue-7B4EA6.svg)](https://dramatiq.io/)
+[![APScheduler](https://img.shields.io/badge/APScheduler-scheduler-4B8BBE.svg)](https://apscheduler.readthedocs.io/)
+[![Airflow](https://img.shields.io/badge/Airflow-orchestrator-017CEE.svg?logo=apacheairflow&logoColor=white)](https://airflow.apache.org/)
 
 | Guide | Description |
 |-------|-------------|
-| [01 — Overview](background_work/01_overview.md) | Dramatiq vs BackgroundTasks vs APScheduler vs Airflow — when to use what |
-| [02 — Dramatiq](background_work/02_dramatiq.md) | Actors, brokers, retries, rate limits, pipelines, monitoring |
-| [03 — Dramatiq + FastAPI](background_work/03_dramatiq_fastapi.md) | Integration patterns, project structure, testing, Docker Compose |
-| [04 — APScheduler](background_work/04_apscheduler.md) | Scheduled jobs, triggers, job stores, the multi-instance problem |
-| [05 — Airflow](background_work/05_airflow.md) | DAGs, TaskFlow API, operators, sensors, dynamic mapping, production patterns |
+| [01 — Overview](background_work/01_overview.md) | Separates business state, task execution, queue delivery, workers, schedulers, and engines |
+| [02 — Workflow Threshold](background_work/02_when_a_task_becomes_a_workflow.md) | Decides when progress needs durable business state and when one job is enough |
+| [03 — State-Machine Design](background_work/03_state_machine_design.md) | Separates transition modeling, persistence/concurrency, and execution |
+| [State-Machine Deep Dives](background_work/state_machines/README.md) | Application code, relational CAS, event sourcing, and one end-to-end workflow |
+| [04 — Queue Architectures](background_work/04_queue_and_worker_architectures.md) | Database queues, brokers/outbox, managed queues, engines, and choreography |
+| [05 — Execution Models](background_work/05_task_execution_models.md) | Processes, bounded threads, bounded coroutines, and mixed workloads |
+| [06 — Scheduling](background_work/06_scheduling_and_periodic_work.md) | Calendar/interval rules, DST, misfires, overlap, and replica-safe durable firings |
+| [Reliability Deep Dives](background_work/reliability/README.md) | Atomicity, fencing, idempotency, retries/cancellation, reconciliation, and operations |
+| [07 — Fan-Out and Join](background_work/07_durable_fanout_and_join.md) | Bounded child sets, idempotent completions, and exactly one aggregate handoff |
+| [08 — Failure Testing](background_work/08_failure_injection_and_testing.md) | Crash, redelivery, lease, heartbeat, cancellation, retry, and redrive tests |
+| [09 — Decision Guide](background_work/09_decision_guide.md) | Practical selection matrix from durability, workflow, workload, and operational needs |
+| [Framework Notes](background_work/frameworks/README.md) | Celery, Dramatiq, APScheduler, Airflow, Temporal-class engines, and LangGraph |
 
 ---
 
@@ -278,5 +286,5 @@ python-backend-notes/
 ### Background Work & Architecture
 
 1. [Redis](infrastructure/redis/README.md) — data structures, caching, pub/sub
-2. [Background Work](background_work/README.md) — Dramatiq, APScheduler, BackgroundTasks
+2. [Background Work](background_work/README.md) — workflows, queues, workers, execution models, reliability, and framework choices
 3. [Long-Running Tasks](architecture/long_running_tasks/README.md) — orchestration, workers, delivery patterns, sagas/outbox

@@ -1,42 +1,75 @@
 # Background Work
 
-> Running work outside the request-response cycle.
+> A failure-first design course for work that outlives a request, process, delivery, or human wait.
 
-[![Dramatiq](https://img.shields.io/badge/Dramatiq-1.17+-7B4EA6.svg)](https://dramatiq.io)
-[![APScheduler](https://img.shields.io/badge/APScheduler-3.x-4B8BBE.svg)](https://apscheduler.readthedocs.io)
-[![Airflow](https://img.shields.io/badge/Airflow-2.10+-017CEE.svg?logo=apacheairflow&logoColor=white)](https://airflow.apache.org)
-[![Redis](https://img.shields.io/badge/Redis-broker-DC382D.svg?logo=redis&logoColor=white)](https://redis.io)
+[![Python](https://img.shields.io/badge/Python-background_workers-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-durable_state-4169E1.svg?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Temporal](https://img.shields.io/badge/Temporal-durable_workflows-141414.svg)](https://temporal.io/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-checkpointed_graphs-1C3C3C.svg)](https://www.langchain.com/langgraph)
 
-This section answers the **"what tool should I use?"** question. For the **"how do I design the system?"** question (orchestration, worker patterns, client delivery), see [architecture/long_running_tasks](../architecture/long_running_tasks/).
+The framework-neutral notes build one editorial workflow from failure to mechanism to implementation to verification. Framework notes show which responsibilities particular runtimes own; they are not substitutes for the business guarantees in the reliability section.
 
 ---
 
-## Contents
+## Core Design
 
 | File | Topic | Description |
-|------|-------|-------------|
-| [01_overview.md](01_overview.md) | Task Execution Strategies | Dramatiq vs FastAPI BackgroundTasks vs APScheduler — when to use what |
-| [02_dramatiq.md](02_dramatiq.md) | Dramatiq Deep Dive | Actors, brokers, retries, rate limits, pipelines, monitoring |
-| [03_dramatiq_fastapi.md](03_dramatiq_fastapi.md) | Dramatiq + FastAPI | Integration patterns, project structure, testing, Docker Compose |
-| [04_apscheduler.md](04_apscheduler.md) | APScheduler | Scheduled jobs, triggers, job stores, the multi-instance problem |
-| [05_airflow.md](05_airflow.md) | Apache Airflow | DAGs, TaskFlow API, operators, sensors, dynamic mapping, Docker setup, production patterns |
+|---|---|---|
+| [01_overview.md](01_overview.md) | Responsibility model | Separates workflow, execution, delivery, workers, schedulers, and engines |
+| [02_when_a_task_becomes_a_workflow.md](02_when_a_task_becomes_a_workflow.md) | Workflow threshold | Decides when progress has durable business meaning and when one job is enough |
+| [03_state_machine_design.md](03_state_machine_design.md) | Three design axes | Separates transition modeling, state persistence/concurrency, and work execution |
+| [state_machines/](state_machines/README.md) | State-machine deep dives | Compares code models, relational CAS, event streams, and the complete workflow lifecycle |
 
 ---
 
-## Quick Decision
+## Delivery, Execution, and Timing
 
-| Need | Tool |
-|------|------|
-| Fire-and-forget after response (non-critical, <5s) | FastAPI `BackgroundTasks` |
-| Reliable isolated execution, retries, heavy work | Dramatiq |
-| Periodic/scheduled jobs (single instance) | APScheduler |
-| Periodic jobs across multiple instances | APScheduler + Redis lock, or APScheduler triggering Dramatiq |
-| Multi-step pipelines with dependencies, DAGs, UI | Airflow |
+| File | Topic | Description |
+|---|---|---|
+| [04_queue_and_worker_architectures.md](04_queue_and_worker_architectures.md) | Queue architectures | Compares database queues, brokers/outbox, managed queues, engines, and choreography |
+| [05_task_execution_models.md](05_task_execution_models.md) | Execution models | Selects processes, bounded threads, or bounded coroutines from workload behavior |
+| [06_scheduling_and_periodic_work.md](06_scheduling_and_periodic_work.md) | Scheduling | Defines cron/interval, timezone/DST, misfire, catch-up, overlap, and replica-safe firings |
+
+---
+
+## Reliability and Composition
+
+| File | Topic | Description |
+|---|---|---|
+| [reliability/](reliability/README.md) | Reliability deep dives | Implements atomic intent, fencing, idempotency, retry/cancellation, reconciliation, and operations |
+| [07_durable_fanout_and_join.md](07_durable_fanout_and_join.md) | Fan-out/join | Persists bounded child sets, idempotent completion, and one aggregate handoff |
+| [08_failure_injection_and_testing.md](08_failure_injection_and_testing.md) | Failure testing | Exercises crash, redelivery, lease, heartbeat, cancellation, outbox, retry, and redrive races |
+
+---
+
+## Selection and Frameworks
+
+| File | Topic | Description |
+|---|---|---|
+| [09_decision_guide.md](09_decision_guide.md) | Decision guide | Turns durability, state, workload, and operational constraints into the smallest suitable system |
+| [frameworks/](frameworks/README.md) | Framework notes | Celery, Dramatiq, APScheduler, Airflow, Temporal-class engines, and LangGraph |
+
+---
+
+## Reading Order
+
+1. **Full design course** — `01` → `02` → `03` → `state_machines/` → `04` → `05` → `06` → `reliability/` → `07` → `08` → `09`.
+2. **Implement the database-backed default** — read `01`–`03`, then [the end-to-end workflow](state_machines/04_end_to_end_workflow.md) and all [reliability deep dives](reliability/README.md).
+3. **Choose quickly** — start with the [Decision Guide](09_decision_guide.md), then follow its links to the mechanism that changes the decision.
+4. **Evaluate orchestration runtimes** — read [State-Machine Design](03_state_machine_design.md), then the relevant [framework note](frameworks/README.md).
+
+---
+
+## Related Sections
+
+- [Long-running task patterns](../architecture/long_running_tasks/README.md) — client delivery, callbacks, task tokens, and infrastructure-specific examples
+- [Concurrency fundamentals](../fundamentals/concurrency/README.md) — event loops, threads, processes, and synchronization
+- [API idempotency](../fundamentals/fastapi/safe_and_scalable_api_calls/11_idempotency.md) — stable request keys and replay-safe API semantics
 
 ---
 
 ## Prerequisites
 
-- [fundamentals/concurrency/](../fundamentals/concurrency/README.md) — understand async, threads, and processes
-- Basic FastAPI knowledge (endpoints, dependency injection, lifespan)
-- [infrastructure/redis/](../infrastructure/redis/README.md) — used as broker and result backend by Dramatiq
+- Comfortable reading Python and PostgreSQL
+- Basic familiarity with transactions, HTTP clients, and containerized services
+- No prior knowledge of a task-queue or workflow framework is assumed
