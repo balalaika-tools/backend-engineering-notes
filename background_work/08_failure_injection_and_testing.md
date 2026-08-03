@@ -217,19 +217,25 @@ Success is the printed line and a zero exit code. If both claimers return a row,
 
 ## 5. The production acceptance matrix names injection and evidence
 
+The first seven rows are the **default recovery suite**. Add fan-out, scheduler, authorization, and tenant-isolation rows whenever the corresponding capability exists.
+
 | Scenario | Deterministic injection | Safety assertion | Liveness assertion |
 |---|---|---|---|
-| Crash/redelivery after external effect | Provider stub commits, barrier blocks response persistence, kill worker | Effect count per operation key is one | Redelivery recovers provider result and completes |
-| Lease contention | Two DB connections cross a barrier before claim | One current token; one claim winner per row | Losing worker claims other work or returns idle |
-| Lost heartbeat | Heartbeat repository returns zero while provider task is paused | Local task cancels; old token makes no terminal write | Lease expiry/reconciler creates a new attempt |
-| Cancellation race | Cancel and complete wait on one barrier with same expected version | One CAS changes one row; loser changes zero | Winner reaches `CANCELLED` or `COMPLETED` with history |
-| Outbox gap | Broker confirms, then outbox mark raises/connection closes | Duplicate message creates no second job/effect | Expired publisher claim republishes and marks terminally |
-| Retry exhaustion | Fake clock advances through attempt and age budgets | No claim before schedule or after terminal failure | Job reaches `FAILED` with terminal reason and DLQ evidence |
-| Redrive | Operator command races stale delivery after cause fix | Original operation key is preserved; stale workflow rejected | New inspected attempt reaches terminal state |
+| **Crash/redelivery after external effect** | Provider stub commits, barrier blocks response persistence, kill worker | Effect count per operation key is one | Redelivery recovers provider result and completes |
+| **Lease contention** | Two DB connections cross a barrier before claim | One current token; one claim winner per row | Losing worker claims other work or returns idle |
+| **Lost heartbeat** | Heartbeat repository returns zero while provider task is paused | Local task cancels; old token makes no terminal write | Lease expiry/reconciler creates a new attempt |
+| **Cancellation race** | Cancel and complete wait on one barrier with same expected version | One CAS changes one row; loser changes zero | Winner reaches `CANCELLED` or `COMPLETED` with history |
+| **Outbox gap** | Broker confirms, then outbox mark raises/connection closes | Duplicate message creates no second job/effect | Expired publisher claim republishes and marks terminally |
+| **Retry exhaustion** | Fake clock advances through attempt and age budgets | No claim before schedule or after terminal failure | Job reaches `FAILED` with terminal reason and DLQ evidence |
+| **Redrive** | Operator command races stale delivery after cause fix | Original operation key is preserved; stale workflow rejected | New inspected attempt reaches terminal state |
 | Fan-out join | Last two child completions cross one barrier | Counter increments once per item; one aggregate job | Group eventually aggregates or fails by policy |
 | Scheduler replica race | Two schedulers create same logical occurrence | One `(schedule_id, scheduled_for)` and one job | Cursor advances; future occurrence still fires |
+| Unauthorized/cross-tenant command | Principal for tenant A submits B's resource to create, approve, cancel, or redrive | Denial creates zero workflow, job, outbox, or provider rows for B | A later authorized command can still progress normally |
+| Tenant flood | A fills pending/in-flight budget while B submits latency-sensitive work | Tenant/global reservations and provider permits remain bounded | B starts and completes within its queue-age SLO |
 
 For each scenario, assert the complete row set: workflow state/version, transition history, job status/token/attempt, outbox/inbox evidence, provider operation, and result reference. A final API response alone can hide an inconsistent orphan row.
+
+The authorization and tenant-isolation contracts are defined in [Production Operations](operations/README.md). Their tests assert the absence or fair ordering of durable work, not only worker behavior after a message already exists.
 
 ---
 
@@ -252,7 +258,7 @@ Do not configure the stub to be more helpful than the real provider. If producti
 
 Log the random schema/run IDs, barrier reached, child process PID, exact fault hook, and stable operation key. Preserve container logs and database snapshots as test artifacts when a system test fails. A flaky “timed out waiting for worker” result teaches nothing unless it also shows which durable evidence was missing.
 
-Run fast transition/database races on every change. Run process-kill, broker-redelivery, and maximum-replica limit tests in CI or a scheduled pre-production suite. Re-run the provider contract suite when SDK/provider idempotency behavior changes.
+Run fast transition/database races and authorization-denial tests on every change. Run process-kill, broker-redelivery, tenant-flood, and maximum-replica limit tests in CI or a scheduled pre-production suite. Re-run the provider contract suite when SDK/provider idempotency behavior changes.
 
 ⚠️ Random process killing without named boundaries creates nondeterministic coverage: many runs die before any interesting state and the dangerous window may never execute.
 

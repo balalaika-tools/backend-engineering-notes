@@ -38,7 +38,15 @@ The framework-neutral notes build one editorial workflow from failure to mechani
 |---|---|---|
 | [reliability/](reliability/README.md) | Reliability deep dives | Implements atomic intent, fencing, idempotency, retry/cancellation, reconciliation, and operations |
 | [07_durable_fanout_and_join.md](07_durable_fanout_and_join.md) | Fan-out/join | Persists bounded child sets, idempotent completion, and one aggregate handoff |
-| [08_failure_injection_and_testing.md](08_failure_injection_and_testing.md) | Failure testing | Exercises crash, redelivery, lease, heartbeat, cancellation, outbox, retry, and redrive races |
+
+---
+
+## Production Operations
+
+| File | Topic | Description |
+|---|---|---|
+| [operations/](operations/README.md) | Security, tenancy, and capacity | Secures trigger/control paths, bounds tenant demand, preserves fairness, and sizes worker fleets against shared ceilings |
+| [08_failure_injection_and_testing.md](08_failure_injection_and_testing.md) | Failure testing | Exercises crash, redelivery, lease, authorization, tenant-isolation, cancellation, outbox, retry, and redrive races |
 
 ---
 
@@ -47,16 +55,16 @@ The framework-neutral notes build one editorial workflow from failure to mechani
 | File | Topic | Description |
 |---|---|---|
 | [09_decision_guide.md](09_decision_guide.md) | Decision guide | Turns durability, state, workload, and operational constraints into the smallest suitable system |
-| [frameworks/](frameworks/README.md) | Framework notes | Celery, Dramatiq, APScheduler, Airflow, Temporal-class engines, and LangGraph |
+| [frameworks/](frameworks/README.md) | Framework notes | Worker runtimes, schedulers, orchestrator selection, Step Functions, Temporal, Airflow, and LangGraph |
 
 ---
 
 ## Reading Order
 
-1. **Full design course** — `01` → `02` → `03` → `state_machines/` → `04` → `05` → `06` → `reliability/` → `07` → `08` → `09`.
-2. **Implement the database-backed default** — read `01`–`03`, then [the end-to-end workflow](state_machines/04_end_to_end_workflow.md) and all [reliability deep dives](reliability/README.md).
+1. **Full design course** — `01` → `02` → `03` → `state_machines/` → `04` → `05` → `06` → `reliability/` → `07` → `operations/` → `08` → `09`.
+2. **Implement the database-backed default** — read `01`–`03`, then [the end-to-end workflow](state_machines/04_end_to_end_workflow.md), all [reliability deep dives](reliability/README.md), and the [production operations](operations/README.md) before running the failure matrix.
 3. **Choose quickly** — start with the [Decision Guide](09_decision_guide.md), then follow its links to the mechanism that changes the decision.
-4. **Evaluate orchestration runtimes** — read [State-Machine Design](03_state_machine_design.md), then the relevant [framework note](frameworks/README.md).
+4. **Evaluate orchestration runtimes** — read [State-Machine Design](03_state_machine_design.md), then [Workflow Orchestrator Selection](frameworks/00_workflow_orchestrator_selection.md), then the relevant [framework note](frameworks/README.md).
 
 ---
 
@@ -65,6 +73,8 @@ The framework-neutral notes build one editorial workflow from failure to mechani
 - [Long-running task patterns](../architecture/long_running_tasks/README.md) — client delivery, callbacks, task tokens, and infrastructure-specific examples
 - [Concurrency fundamentals](../fundamentals/concurrency/README.md) — event loops, threads, processes, and synchronization
 - [API idempotency](../fundamentals/fastapi/safe_and_scalable_api_calls/11_idempotency.md) — stable request keys and replay-safe API semantics
+- [Distributed admission control](../fundamentals/fastapi/safe_and_scalable_api_calls/09_distributed_admission_control.md) — Redis-backed request, tenant, provider, and global limit mechanics
+- [Redis rate limiting](../infrastructure/redis/05_rate_limiting.md) — fixed window, sliding window, and token-bucket primitives
 
 ---
 

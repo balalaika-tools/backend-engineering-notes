@@ -224,7 +224,7 @@ python-backend-notes/
 | [07 — Fan-Out and Join](background_work/07_durable_fanout_and_join.md) | Bounded child sets, idempotent completions, and exactly one aggregate handoff |
 | [08 — Failure Testing](background_work/08_failure_injection_and_testing.md) | Crash, redelivery, lease, heartbeat, cancellation, retry, and redrive tests |
 | [09 — Decision Guide](background_work/09_decision_guide.md) | Practical selection matrix from durability, workflow, workload, and operational needs |
-| [Framework Notes](background_work/frameworks/README.md) | Celery, Dramatiq, APScheduler, Airflow, Temporal-class engines, and LangGraph |
+| [Framework Notes](background_work/frameworks/README.md) | Celery, Dramatiq, APScheduler, orchestrator selection, Step Functions, Temporal, Airflow, and LangGraph |
 
 ---
 

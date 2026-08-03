@@ -140,11 +140,13 @@ provider_operations: no generation row
 
 **Invariant**: version 7 and the final history row describe the same durable state; no generation intent exists before approval.
 
+The read contract must hand that version to the caller. Return it as a response field or as an `ETag`, then require the command to return it as `expected_version` or `If-Match`. Reject a command that omits the version instead of silently substituting the latest value: otherwise a stale review screen becomes an unconditional write and the optimistic-concurrency loop is open at the client boundary.
+
 **Crash here**: nothing is running, so restart changes nothing.
 
 **Recovery mechanism**: the client can resubmit a command against version 7.
 
-**Verification**: stop every service, restart only the API, and confirm the read model still offers `approve` and `cancel`—never `generation_succeeded`.
+**Verification**: stop every service, restart only the API, and confirm the read model still offers `approve` and `cancel`—never `generation_succeeded`—with version 7 in the body or `ETag`. A command without that version is rejected before the repository write method runs.
 
 ---
 
@@ -510,6 +512,8 @@ The system is ready when one integration suite proves these observable outcomes:
 **How you know it is working**: for any run, an operator can move from workflow transition to job attempt, attempt token, provider operation, outbox message, and final artifact using stable IDs. Queue depth alone is not this success signal.
 
 Do not copy this full design for one best-effort email or one transaction-local calculation. Start with the smallest recovery contract in [When a Task Becomes a Workflow](../02_when_a_task_becomes_a_workflow.md), then add only the mechanisms whose failure timelines are real for the workload.
+
+This walkthrough is also a small hand-built workflow orchestrator: the application owns transition history, job scheduling, leases, retries, delayed wake-ups, and reconciliation. That is reasonable for a few stable states and 10–50 jobs per day. When durable timers, human waits, signals, parallel branches, compensation, child workflows, and definition migrations multiply, consider making **Step Functions Standard** or **Temporal** the coordination authority instead. The engine replaces much of the custom control plane; it does not replace domain transactions or provider idempotency. See [Workflow Orchestrator Selection](../frameworks/00_workflow_orchestrator_selection.md).
 
 ---
 

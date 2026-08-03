@@ -35,8 +35,11 @@ The **core four** cover the failure windows introduced by state, jobs, outbox, a
 | **Every job belongs to a legal workflow step** | Orphan or incompatible state/version | Mark stale; never execute blindly |
 | Published outbox eventually reaches consumer evidence | Old published row, no job/inbox progress | Inspect routing and consumer health |
 | Inbox claim has a local effect | Message recorded, expected transition absent | Replay atomic consumer transaction or escalate contract defect |
-| Projection matches authoritative history | Version gap or wrong state | Stop stream, replay missing events, rebuild projection |
+| Current workflow row agrees with transition history | Missing version or final history state/version differs | Stop commands for the run; reconstruct from authoritative evidence or escalate |
+| Projection matches authoritative history | Projection version gap or wrong projected state | Stop stream, replay missing events, rebuild projection |
 | Pending work meets queue-age SLO | Old eligible row | Inspect capacity, indexes, fairness, and dependency health |
+
+`UNIQUE (workflow_run_id, workflow_version)` prevents two history rows from claiming the same version; it cannot prove that every version exists. The reconciler checks that versions are contiguous and that the last transition's version and `to_state` match `workflow_runs.version` and `workflow_runs.state`. A gap is missing evidence, not permission to invent a transition.
 
 Every repair preserves the original operation, job, message, and command keys. A new identifier turns recovery into a second business action.
 

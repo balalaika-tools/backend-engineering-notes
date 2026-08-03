@@ -271,7 +271,7 @@ FIFO ordering reduces parallelism because a message group serializes work. Use p
 
 ## 5. Durable engines own coordination, not external side effects
 
-A durable workflow engine persists workflow history, durable timers, signals, pause/resume points, activity attempts, and recovery. Use one when those mechanisms are central to the product rather than incidental infrastructure.
+A durable workflow engine persists workflow history, durable timers, signals, pause/resume points, activity attempts, and recovery. It is an alternative owner for workflow coordination, not another layer that every database queue or broker architecture should add. Use one when those mechanisms are central to the product rather than incidental infrastructure.
 
 ```text
 workflow history / checkpoints
@@ -286,14 +286,24 @@ Two subcategories matter:
 
 | Category | Good fit | Examples |
 |---|---|---|
-| General durable workflow engine | Long-lived service workflows, timers, signals, compensation, replay | Temporal, cloud workflow services |
+| General durable workflow engine | Long-lived service workflows, timers, signals, compensation, replay | Temporal, AWS Step Functions Standard |
 | Checkpointed graph runtime | Agent/LLM graphs, interrupts, persisted graph state, tool loops | LangGraph |
 
 LangGraph’s [official persistence guide](https://docs.langchain.com/oss/python/langgraph/persistence) describes snapshots saved at graph steps and resume from the last successful step. This is not the same job as a generic task queue.
 
 Activities and graph nodes may execute again after a crash or replay. Pass stable idempotency keys to payments, email providers, webhook receivers, and LLM/provider calls where supported; otherwise record the provider request and result around the side effect.
 
-Do not layer an engine over an existing authoritative state machine and let both own the same transitions. Either make the engine history authoritative for orchestration while the database owns domain entities, or keep coordination in the database and use simpler workers.
+Adopting an engine changes this responsibility boundary:
+
+```text
+custom design: workflow rows + jobs + outbox + reconciler own coordination
+engine design: engine history + activity tasks own coordination
+both designs: domain DB and idempotency records own business evidence
+```
+
+Do not layer an engine over an existing authoritative state machine and let both own the same transitions. Either make the engine history authoritative for orchestration while the database owns domain entities, or keep coordination in the database and use simpler workers. If committing a domain row must also start an engine execution, the cross-system dual write still needs an outbox, stable execution ID, or an engine-first transaction boundary.
+
+Use Step Functions Standard or Temporal when durable waits, signals, compensation, child workflows, and definition evolution are numerous enough that custom timer tables and reconcilers are becoming a runtime. Keep DB polling or hybrid dispatch for a few stable steps. Compare the products, their execution models, and the migration boundary in **[Workflow Orchestrator Selection](frameworks/00_workflow_orchestrator_selection.md)**.
 
 ---
 

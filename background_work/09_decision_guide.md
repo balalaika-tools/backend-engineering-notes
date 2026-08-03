@@ -2,7 +2,7 @@
 
 > **Who this is for**: Engineers turning workload, durability, workflow, and operational constraints into a concrete background-work design.
 
-Before choosing a tool, read **[the responsibility model](01_overview.md)** and **[the reliability deep dives](reliability/README.md)**.
+Before choosing a tool, read **[the responsibility model](01_overview.md)**, **[the reliability deep dives](reliability/README.md)**, and the relevant **[production operations](operations/README.md)**.
 
 ---
 
@@ -111,9 +111,9 @@ Choose a job record without a business state machine when success is one indepen
 
 Choose persistent workflow state when the system must recover an allowed next action after restart, especially with approval, branching, cancellation, compensation, synchronization, or audit history.
 
-Choose a durable workflow engine when implementing timers, signals, replay, compensation, and workflow-version evolution would become a product-sized runtime. Choose a checkpointed graph when LLM/agent state and human interrupts are central, while retaining idempotency around external side effects.
+Choose a durable workflow engine when implementing timers, signals, replay, compensation, and workflow-version evolution would become a product-sized runtime. **AWS Step Functions Standard** fits AWS-native declarative orchestration and service integrations; **Temporal** fits code-first durable service workflows and activity workers. Choose a checkpointed graph when LLM/agent state and human interrupts are central, while retaining idempotency around external side effects.
 
-Compare the axes before choosing either in [State-Machine Design](03_state_machine_design.md), then use the [database-backed](state_machines/02_database_backed_state_machine.md) or [event-sourced](state_machines/03_event_sourced_state_machine.md) deep dive for the source-of-truth decision.
+Compare the axes before choosing either in [State-Machine Design](03_state_machine_design.md), then use [Workflow Orchestrator Selection](frameworks/00_workflow_orchestrator_selection.md) to compare custom coordination, Step Functions, Temporal, Airflow, and LangGraph. The [database-backed](state_machines/02_database_backed_state_machine.md) and [event-sourced](state_machines/03_event_sourced_state_machine.md) deep dives cover application-owned alternatives.
 
 Do not let `AsyncResult`, queue visibility, or scheduler job state become authoritative business state. Their retention and failure semantics serve execution, not the domain.
 
@@ -131,6 +131,8 @@ Do not let `AsyncResult`, queue visibility, or scheduler job state become author
 
 Measure queue age, throughput, failure rate, memory high-water mark, pool wait, provider latency, and event-loop lag. Worker count alone is not a success metric.
 
+Turn those measurements into a bounded fleet plan in [Capacity Planning and Autoscaling](operations/03_capacity_planning_and_autoscaling.md). A replica target is incomplete until maximum replicas multiplied by per-pod pools and concurrency still fits database, provider, memory, and cost ceilings.
+
 ---
 
 ## 6. Frameworks cover different responsibility sets
@@ -146,10 +148,10 @@ Start with **APScheduler**, **Celery/Dramatiq**, **database or managed-queue wor
 | Managed queue + poller | External/platform | Provider queue | Custom | No | Cloud-managed delivery with tailored workers |
 | DB polling workers | External/custom | Database | Custom | No | Transactional job creation at moderate volume |
 | Airflow | ✓ | Executor-dependent | Platform executors | Data-workflow orchestration | Scheduled data pipelines and backfills |
-| Durable workflow engine | ✓/timers | Engine-managed | Activity runtime | ✓ | Long-lived stateful service workflows |
+| Temporal / Step Functions Standard | ✓/timers | Engine-managed | Activities or service integrations | ✓ | Long-lived stateful service workflows |
 | LangGraph | Interrupt/timer integrations | Runtime-dependent | Graph runtime | Checkpointed graph | Agent/LLM workflows with persisted graph state |
 
-The important entry points are **APScheduler for timing**, **Celery or Dramatiq for Python task workers**, **Airflow for data pipelines**, and **a durable engine/checkpointed graph for long-lived workflow state**.
+The important entry points are **APScheduler for timing**, **Celery or Dramatiq for Python task workers**, **Airflow for data pipelines**, **Step Functions Standard or Temporal for long-lived service workflows**, and **LangGraph for checkpointed agent state**.
 
 See [Framework Notes](frameworks/README.md) for implementation details.
 
@@ -157,11 +159,13 @@ See [Framework Notes](frameworks/README.md) for implementation details.
 
 ## 7. Review the operational cost before committing
 
-Score each candidate on the questions below. **The first three change the decision most often** — they are the ones whose answers rule a candidate out rather than merely costing it points. Treat the rest as due diligence on the candidate you have already chosen.
+Score each candidate on the questions below. **The first five change the decision most often** — they are the ones whose answers rule a candidate out rather than merely costing it points. Treat the rest as due diligence on the candidate you have already chosen.
 
 - **Where is authoritative business state, and can it conflict with runtime state?**
 - **How are database/broker dual writes closed?**
 - **What happens after a worker dies during an external side effect?**
+- **Which identities may create, approve, cancel, or redrive work for each tenant?**
+- **What is the first capacity ceiling, and what maximum fleet fits beneath it?**
 - Can the team inspect pending, running, retrying, and dead-lettered work?
 - Can an operator safely retry or cancel one job?
 - Are leases/visibility extended for long jobs?
@@ -169,6 +173,8 @@ Score each candidate on the questions below. **The first three change the decisi
 - Can the platform meet payload, retention, ordering, and audit requirements?
 - What data and messages must be deleted for privacy or cost control?
 - Which component is on call, and what is the manual recovery procedure?
+
+Use [Security and Authorization](operations/01_security_and_authorization.md) to review trigger and operator boundaries. Use [Multitenancy, Admission, and Fairness](operations/02_multitenancy_admission_and_fairness.md) to distinguish request rate, durable backlog, in-flight work, and cost budgets.
 
 ⚠️ Avoid a choice whose happy path is easy but whose redrive procedure cannot explain why repeating a side effect is safe.
 
@@ -180,6 +186,8 @@ Score each candidate on the questions below. **The first three change the decisi
 
 Before production, implement the complete [failure-injection matrix](08_failure_injection_and_testing.md) and demonstrate:
 
+The first seven checks are the **default recovery contract**. The final two become required when external principals or multiple tenants share the system.
+
 1. Kill a worker after the external side effect but before completion; redelivery does not duplicate the effect.
 2. Run two workers against one job; only one holds valid ownership.
 3. Race cancellation against completion; one versioned transition wins.
@@ -187,6 +195,8 @@ Before production, implement the complete [failure-injection matrix](08_failure_
 5. Exhaust retries; work becomes visible in the failed/DLQ path with a safe redrive procedure.
 6. Scale pods to the maximum; global provider and database limits remain bounded.
 7. Restart the scheduler or workflow runtime; durable schedules/checkpoints resume according to policy.
+8. Submit unauthorized and cross-tenant commands; denial creates no durable work.
+9. Flood one tenant; other tenants continue within their queue-age SLO while all budgets stay bounded.
 
 The design works when these tests leave an explainable state and an operator can recover without editing rows blindly.
 
