@@ -29,201 +29,69 @@ The queue choice and execution pool choice are separate. Any durable transport c
 
 ---
 
-## 2. A database job table removes the dual write
+## 2. One pending job has three possible durable homes
 
-When workflow state and pending work share one relational database, the API can update both atomically:
+Follow one unit of work, `job-55`, before comparing product features. Each architecture must preserve the same facts; it assigns their ownership differently.
+
+| Moment | Database polling | Broker plus outbox | Managed queue |
+|---|---|---|---|
+| API commits intent | `jobs(job-55, PENDING)` commits beside domain state | `jobs` and `outbox(job-55, unpublished)` commit beside domain state | Domain job/outbox commits before cross-system send |
+| Work becomes visible | A worker query finds the ready job row | Publisher sends an ID-only hint; broker stores the message | Sender places an ID-only message in the queue |
+| Worker takes ownership | Conditional row claim creates a lease/token | Broker delivery wakes the worker; the database claim remains authoritative | Visibility receipt leases delivery; a DB token may also fence domain writes |
+| Worker finishes | Fenced job update commits `SUCCEEDED` | Fenced job update commits, then delivery is acknowledged | Durable effect/state commits, then the receipt is deleted |
+| Owner disappears | Expired row lease makes the job reclaimable | Message redelivers and/or expired DB lease is reclaimed | Visibility expires and the message redelivers |
+
+For database polling, the first row is the whole handoff:
 
 ```text
-API transaction
-  ├── workflow_runs: WAITING_FOR_HUMAN_REVIEW → GENERATION_QUEUED
-  ├── jobs: insert PENDING generation job
-  └── workflow_transitions: append approval event
-                         │
-                         ▼
-workers poll and atomically claim jobs
+API transaction                    worker transaction
+───────────────                    ──────────────────
+domain state changes               claim job-55 if PENDING
+job-55 = PENDING      ───────────► job-55 = RUNNING + token-a
+                                   complete only with token-a
 ```
 
-PostgreSQL workers can claim rows without waiting on work held by other workers. The [PostgreSQL `SELECT` documentation](https://www.postgresql.org/docs/current/sql-select.html) notes that `SKIP LOCKED` gives an inconsistent view and is suitable for queue-like access, not general reporting queries.
+This removes the database/broker dual write because business state and pending work share one commit. It fits low-to-moderate volume when the domain database is authoritative and the team is willing to operate polling, ready-row indexes, leases, retries, cleanup, and fairness.
 
-The caller supplies `:available_slots`, calculated from actual free execution capacity. A worker with ten slots never claims fifty jobs and renews forty leases while they wait in local memory.
+The comparison note does not own the claim protocol. Use [Leases, Heartbeats, and Fencing](reliability/02_leases_heartbeats_and_fencing.md) for the complete `SKIP LOCKED` claim, heartbeat, token replacement, terminal-write, and recovery SQL. A worker claims only its real free slots; a semaphore around already leased rows merely hides lease hoarding in local memory.
 
-```sql
-WITH candidates AS (
-    SELECT id
-    FROM jobs
-    WHERE status = 'PENDING'
-      AND next_attempt_at <= now()
-    ORDER BY priority DESC, next_attempt_at, created_at
-    FOR UPDATE SKIP LOCKED
-    LIMIT :available_slots
-)
-UPDATE jobs AS j
-SET status = 'RUNNING',
-    attempt = attempt + 1,
-    attempt_token = gen_random_uuid(),
-    worker_id = :worker_id,
-    lease_expires_at = now() + interval '90 seconds',
-    started_at = COALESCE(started_at, now())
-FROM candidates
-WHERE j.id = candidates.id
-RETURNING j.*;
-```
+**How you know it fits**: ready-row query latency and database load stay bounded, while oldest-ready age falls when worker capacity increases. Rising age with idle workers points to the polling index, readiness predicate, lease recovery, or admission policy—not automatically to insufficient CPU.
 
-Each claim gets a new `attempt_token`; `worker_id` is only observability metadata. Heartbeat, completion, failure, and recovery all predicate on the token. If a heartbeat fails or affects zero rows, execution is cancelled and the attempt is fenced. The complete ownership protocol belongs in [Leases, Heartbeats, and Fencing](reliability/02_leases_heartbeats_and_fencing.md), while durable failure transitions belong in [Retries, Timeouts, and Cancellation](reliability/04_retries_timeouts_and_cancellation.md).
-
-For native async I/O, either claim exactly the free slot count or place unclaimed delivery IDs in a bounded local queue and claim them only as slots open. A semaphore around already-claimed work does not provide backpressure: the database lease is already being hoarded.
-
-**Use it when** throughput is low to moderate, the database is already authoritative, atomic job creation matters, and the team can own leases, retries, prioritization, cleanup, and fairness.
-
-**Do not use it when** queue traffic would dominate the primary database, independent consumers need different retention/replay semantics, or the team does not want to maintain a worker runtime.
-
-Success signals are low claim-query latency, bounded polling query volume, stable database lock time, and queue age that falls when workers scale out. A rising oldest-job age while CPU is idle usually means an index, claim filter, or lease-recovery defect.
+Do not use database polling when queue traffic would dominate the primary database, consumers require independent retention/replay, or the team does not want to own queue-runtime behavior.
 
 ---
 
-## 3. A broker needs an outbox at the database boundary
+## 3. A broker transports a hint; the outbox preserves the database handoff
 
-In a domain-database + broker architecture, responsibilities are explicit:
-
-```text
-API / publisher ──writes──► domain database
-       │
-       └──publishes IDs───► broker ──delivers──► worker
-                                                   │
-                                                   └──loads/updates──► domain database
-```
-
-The broker does not poll or understand the domain database. The API, an outbox publisher, or change-data-capture process writes broker messages. The worker receives a message, loads authoritative state by ID, checks the expected version/state, and conditionally updates the database.
-
-**Nothing about installing a broker makes delivery durable.** Before this architecture is safer than the job table, three things must be true of the transport, framework-neutrally:
-
-1. **The queue survives a broker restart** — on RabbitMQ that means a durable queue, and in practice a [quorum queue](https://www.rabbitmq.com/docs/quorum-queues), which replicates to a majority of nodes.
-2. **Messages survive it too** — published as persistent. A persistent message on a transient queue is still lost.
-3. **The publisher learns whether the broker took it** — publisher confirms. Without them a publish is fire-and-forget, and the outbox below cannot tell a delivered message from a dropped one.
-
-⚠️ Redis-backed transports do not have acknowledgement at all; they emulate it with a visibility timeout, and [Celery's Redis documentation](https://docs.celeryq.dev/en/stable/getting-started/backends-and-brokers/redis.html) states that a task whose ETA or runtime exceeds `visibility_timeout` — one hour by default — "will be executed again, and again in a loop." The original worker is healthy and still working the whole time. Size the timeout above your longest task, or keep long tasks off a Redis transport. (Checked 2026-08-03.)
-
-Publishing directly next to the transaction creates two losing timelines:
+A broker is useful for routing and wake-up, but it cannot join the domain transaction. The outbox keeps PostgreSQL as the commit point:
 
 ```text
-Timeline A                            Timeline B
-DB commit succeeds                   broker publish succeeds
-process crashes                      DB transaction rolls back
-broker publish never happens         worker sees an entity that does not exist
+1. API transaction commits:
+   workflow = RESEARCH_QUEUED
+   job-55   = PENDING
+   outbox-9 = UNPUBLISHED(job_id=job-55)
+
+2. Publisher later sends outbox-9:
+   broker message = {message_id: outbox-9, job_id: job-55}
+
+3. Worker receives the hint:
+   reload job-55 from PostgreSQL
+   claim it only if its state and version are still eligible
 ```
 
-The **transactional outbox** makes the database the commit point. The table needs a publish-state column, because the publisher's whole job is to find rows it has not published yet:
+If the API dies after step 1, the publisher still finds `outbox-9`. If the publisher dies after the broker accepted step 2 but before marking it published, it sends the same message ID again. Duplicate publication is deliberate; the worker converges on the authoritative job claim.
 
-```sql
-CREATE TABLE outbox (
-    id UUID PRIMARY KEY,                  -- also the broker message ID
-    aggregate_id UUID NOT NULL,
-    event_type TEXT NOT NULL,
-    payload JSONB NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    published_at TIMESTAMPTZ,             -- NULL = still owed to the broker
-    attempts INTEGER NOT NULL DEFAULT 0,
-    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    claim_token UUID,
-    publisher_id TEXT,
-    claim_expires_at TIMESTAMPTZ,
-    last_error TEXT,
-    last_confirm_error TEXT
-);
+The full table schema, dependent state/job/outbox CTE, publish claim, confirmation mark, failure backoff, and reconciliation implications belong to [Atomic Transitions and Outbox](reliability/01_atomic_transitions_and_outbox.md). The architecture-level contract is shorter:
 
-CREATE INDEX outbox_unpublished_idx
-    ON outbox (next_attempt_at, created_at)
-    WHERE published_at IS NULL;
-```
+- The domain transition and outbox row commit together.
+- The publisher marks delivery only after the broker confirms it.
+- Consumers reload authority by ID and tolerate the same message more than once.
 
-```sql
--- The outbox insert receives a row only when the compare-and-set wins.
-WITH updated AS (
-    UPDATE workflow_runs
-    SET state = 'RESEARCH_QUEUED',
-        version = version + 1,
-        updated_at = now()
-    WHERE id = :run_id
-      AND state = 'NEW'
-      AND version = :expected_version
-    RETURNING id, version
-),
-queued AS (
-    INSERT INTO outbox (id, aggregate_id, event_type, payload)
-    SELECT :message_id,
-           id,
-           'research.requested',
-           jsonb_build_object(
-               'workflow_run_id', id,
-               'step_id', :step_id,
-               'expected_version', version,
-               'idempotency_key', :idempotency_key
-           )
-    FROM updated
-    ON CONFLICT (id) DO NOTHING
-)
-SELECT id, version FROM updated;
-```
+Broker durability settings still matter. A durable RabbitMQ queue (normally a replicated [quorum queue](https://www.rabbitmq.com/docs/quorum-queues)), persistent messages, and publisher confirms answer different loss windows; one does not imply the others. [Redis-backed Celery transports](https://docs.celeryq.dev/en/stable/getting-started/backends-and-brokers/redis.html) emulate acknowledgement with a visibility timeout, so a task that runs past that timeout can be delivered again while the first worker is still active. Size the transport window from measured runtime or move long work to a transport/runtime with renewable ownership.
 
-Zero final rows mean zero state transition and zero outbox row. Treat that as a conflict; do not publish anything.
+**How you know it fits**: domain transition rate, oldest-unpublished age, broker confirmation failures, message redelivery, and oldest-ready job age form one explainable chain. Healthy API commits beside steadily rising oldest-unpublished age mean the publisher handoff is failing even if broker queue depth is zero.
 
-The publisher claims a batch the same way a worker claims jobs, publishes each row, then marks it published:
-
-```sql
--- Claim
-WITH candidates AS (
-    SELECT id
-    FROM outbox
-    WHERE published_at IS NULL
-      AND next_attempt_at <= now()
-      AND (claim_expires_at IS NULL OR claim_expires_at <= now())
-    ORDER BY created_at
-    FOR UPDATE SKIP LOCKED
-    LIMIT 100
-)
-UPDATE outbox AS o
-SET claim_token = gen_random_uuid(),
-    publisher_id = :publisher_id,
-    claim_expires_at = now() + interval '30 seconds',
-    attempts = attempts + 1
-FROM candidates
-WHERE o.id = candidates.id
-RETURNING o.id, o.event_type, o.payload, o.claim_token;
-
--- Mark, once the broker has confirmed the publish
-UPDATE outbox
-SET published_at = now(),
-    claim_token = NULL,
-    publisher_id = NULL,
-    claim_expires_at = NULL,
-    last_error = NULL,
-    last_confirm_error = NULL
-WHERE id = :outbox_id
-  AND published_at IS NULL
-  AND claim_token = :claim_token
-RETURNING id;
-
--- On publish or confirm failure, release this claim onto a durable backoff.
-UPDATE outbox
-SET next_attempt_at = now() + (:backoff_seconds * interval '1 second'),
-    last_error = :publish_error,
-    last_confirm_error = :confirm_error,
-    claim_token = NULL,
-    publisher_id = NULL,
-    claim_expires_at = NULL
-WHERE id = :outbox_id
-  AND published_at IS NULL
-  AND claim_token = :claim_token
-RETURNING id;
-```
-
-If the publisher crashes after publish but before the second statement, the claim expires and it publishes again. That is deliberate **at-least-once publication** — and it is why step 3 above matters: mark the row only after the broker confirms, never before. Consumers need an inbox/deduplication record or an idempotent claim keyed by `message_id` or `idempotency_key`.
-
-Operational success is visible in **oldest unpublished age**, unpublished count, publish-confirm failure rate, attempts per row, and publisher throughput. A domain transition rate that remains healthy while oldest unpublished age rises is the silent dual-write symptom the outbox was meant to expose.
-
-Change data capture can stream committed outbox rows instead of polling. It changes the publisher mechanism, not the duplicate-delivery contract. A reconciler should still detect a run stuck in `*_QUEUED` with no published outbox evidence.
-
-This architecture fits independent jobs or a small, stable number of stages when a broker and task framework already exist. It starts becoming a hand-built workflow engine when branches, human waits, durable timers, compensation, replay, and dynamic tool execution accumulate.
+Use this architecture when a broker and worker ecosystem already exist, routing matters, or database polling is the wrong load shape. Do not use it to hide an unstable multi-step workflow: branches, human waits, durable timers, compensation, and versioned replay are signals to evaluate a workflow engine.
 
 ---
 

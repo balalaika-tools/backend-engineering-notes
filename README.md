@@ -215,6 +215,7 @@ python-backend-notes/
 |-------|-------------|
 | [01 — Overview](background_work/01_overview.md) | Separates business state, task execution, queue delivery, workers, schedulers, and engines |
 | [02 — Workflow Threshold](background_work/02_when_a_task_becomes_a_workflow.md) | Decides when progress needs durable business state and when one job is enough |
+| [03 — Minimal Durable Task](background_work/03_minimal_durable_task.md) | Builds one API-created job through claim, result lookup, retry, and safe replay |
 | [03 — State-Machine Design](background_work/03_state_machine_design.md) | Separates transition modeling, persistence/concurrency, and execution |
 | [State-Machine Deep Dives](background_work/state_machines/README.md) | Application code, relational CAS, event sourcing, and one end-to-end workflow |
 | [04 — Queue Architectures](background_work/04_queue_and_worker_architectures.md) | Database queues, brokers/outbox, managed queues, engines, and choreography |
@@ -285,6 +286,9 @@ python-backend-notes/
 
 ### Background Work & Architecture
 
-1. [Redis](infrastructure/redis/README.md) — data structures, caching, pub/sub
-2. [Background Work](background_work/README.md) — workflows, queues, workers, execution models, reliability, and framework choices
-3. [Long-Running Tasks](architecture/long_running_tasks/README.md) — orchestration, workers, delivery patterns, sagas/outbox
+1. [Background Work Overview](background_work/01_overview.md) — separate business, delivery, and execution responsibilities
+2. [Task or Workflow?](background_work/02_when_a_task_becomes_a_workflow.md) — choose the smaller lifecycle first
+3. [Minimal Durable Task](background_work/03_minimal_durable_task.md) — submit, claim, retry, and look up one independent job
+4. [Decision Guide](background_work/09_decision_guide.md) — validate the smallest runtime that meets the recovery contract
+
+**Stop here if** one durable task and a result endpoint meet the product need. Continue to the [full Background Work course](background_work/README.md) for stateful workflows, reliability protocols, fan-out, and production operations; use [Long-Running Tasks](architecture/long_running_tasks/README.md) for client delivery, callbacks, and infrastructure-specific patterns.

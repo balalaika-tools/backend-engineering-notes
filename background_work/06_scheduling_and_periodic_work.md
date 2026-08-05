@@ -54,9 +54,19 @@ For calendar schedules, store the original rule and an IANA timezone name such a
 Local wall time has two exceptional cases:
 
 ```text
-spring forward: 02:30 may not exist
-fall back:       02:30 may occur twice with different UTC offsets
+spring forward: a local time may not exist
+fall back:       one local label may occur twice with different UTC offsets
 ```
+
+Use a concrete schedule: `daily-report` at **03:30 in `Europe/Athens`**. In 2026, Athens jumps from `02:59:59+02:00` to `04:00:00+03:00` on March 29, then repeats the 03:00 hour with a different offset on October 25.
+
+| Case and policy | Requested local label | Resolved zoned time | UTC `scheduled_for` | Durable firing key |
+|---|---|---|---|---|
+| Spring gap; shift to the next valid local instant | `2026-03-29 03:30` | `2026-03-29 04:00+03:00[Europe/Athens]` | `2026-03-29T01:00:00Z` | `(daily-report, 2026-03-29T01:00:00Z)` |
+| Fall duplicate; run the first occurrence | `2026-10-25 03:30` | `2026-10-25 03:30+03:00[Europe/Athens]` | `2026-10-25T00:30:00Z` | `(daily-report, 2026-10-25T00:30:00Z)` |
+| Fall duplicate; second occurrence if policy is `both` | `2026-10-25 03:30` | `2026-10-25 03:30+02:00[Europe/Athens]` | `2026-10-25T01:30:00Z` | `(daily-report, 2026-10-25T01:30:00Z)` |
+
+The wall-clock rule, the resolved zoned time, and the firing identity are three different facts. `Europe/Athens` supplies the date-specific rules; `03:30+02:00` supplies only one fixed offset; `scheduled_for` is the unique UTC instant used for deduplication. If the policy is “both,” the repeated local label deliberately creates two distinct keys. If it is “first,” a second scheduler pass converges on the first key rather than inventing another firing.
 
 Choose and store an explicit policy:
 
@@ -68,7 +78,7 @@ Choose and store an explicit policy:
 
 Use UTC for machine-oriented intervals and when wall-clock time has no user meaning. Use a named local zone when the promise is “business day at local time,” and test both DST transitions for that zone.
 
-⚠️ Storing only `03:00+02:00` turns a region's changing offset into a permanent one and shifts the job after daylight-saving changes.
+⚠️ Storing only `03:00+02:00` turns a region's changing offset into a permanent one and shifts the job after daylight-saving changes. It also cannot say whether a repeated local time meant the first or second occurrence.
 
 ---
 

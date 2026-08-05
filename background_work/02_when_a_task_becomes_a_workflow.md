@@ -157,4 +157,4 @@ Do not build a workflow for one replay-safe outcome; use a durable job. Do not b
 
 ---
 
-**Next**: [Part 3: State-Machine Design Has Three Independent Axes](03_state_machine_design.md)
+**Next**: [Minimal Durable Task Lifecycle](03_minimal_durable_task.md)

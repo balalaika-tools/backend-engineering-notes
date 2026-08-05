@@ -22,6 +22,40 @@ parent transition
 
 > **The near-miss**: a counter named `remaining=500` cannot prove which children completed. Duplicate deliveries can decrement twice, and a missing child cannot be distinguished from an unknown original member.
 
+Follow one three-child group before reading the schema and CTEs. The expected keys are `{source-a, source-b, source-c}`:
+
+```text
+Initial durable set
+  items:  a=PENDING, b=PENDING, c=PENDING
+  group:  completed=0/3, status=OPEN
+
+source-a completes
+  item a: PENDING → SUCCEEDED
+  group:  completed=1/3, status=OPEN
+
+duplicate completion for source-a arrives
+  item a is already SUCCEEDED, so zero rows change
+  group:  completed=1/3, status=OPEN
+
+source-b and source-c complete concurrently
+  both may change their own item row
+  group-row updates serialize: one sees 1→2, the other sees 2→3
+  only the 2→3 update changes OPEN → JOIN_QUEUED
+  unique operation key group-17:aggregate creates exactly one aggregate job
+```
+
+The later implementation preserves each line mechanically:
+
+| Trace fact | Durable owner | Predicate or constraint that proves it |
+|---|---|---|
+| `{a, b, c}` is the complete expected set | `fanout_items` plus `expected_count` | One primary-key row per `(group_id, item_key)` |
+| Duplicate `a` changes nothing | Item completion update | `WHERE status = 'PENDING'` |
+| The counter advances only for a new item | Group update | Receives rows only from the successful item update |
+| One concurrent child observes “last” | Locked group-row update | `completed_count + 1 = expected_count` |
+| One aggregate job exists | `jobs.idempotency_key` | Unique `group-17:aggregate` key |
+
+Read §§2–5 as the database implementation of this trace: §2 stores identity, §3 commits the bounded set, §4 keeps execution capacity separate, and §5 makes each completion and the final handoff conditional.
+
 ---
 
 ## 2. The expected set is authoritative

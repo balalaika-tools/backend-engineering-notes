@@ -35,13 +35,34 @@ derived target: GENERATION_QUEUED
 owed work: generate_final job
 ```
 
+Read the repository default once before comparing the alternatives:
+
+```text
+1. Registry decides
+   WAITING_FOR_HUMAN_REVIEW + approve → GENERATION_QUEUED + generate_final command
+
+2. Database persists
+   UPDATE ... WHERE state = WAITING_FOR_HUMAN_REVIEW AND version = 7
+   exactly one row wins and becomes version 8
+
+3. Same transaction records the handoff
+   insert one PENDING generate_final job from that winning row
+
+4. Worker executes later
+   claim the job, call the provider, then complete behind the attempt token
+```
+
+Step 2 is an optimistic **compare-and-set (CAS)**: compare the stored state and version with the command's expectation, then set the new values only if both still match. A zero-row update means another command won or the event was no longer legal; nothing downstream may be created.
+
+This path separates the three axes without making them abstract: the registry owns the legal transition, the version-checked database update owns concurrency and durability, and the worker owns execution after commit. Treat the other rows below as alternatives to revisit only when this default's stated boundary appears.
+
 > **The near-miss**: a transition library solves axis 1. It does not make state durable, serialize concurrent commands, create work atomically, or recover a worker after a crash.
 
 ---
 
 ## 2. Choose the simplest transition model that keeps one owner
 
-All four models below can correctly reject `approve` from `NEW`. The difference is how clearly they express growth in guards, shared behavior, and nesting.
+All four models below can correctly reject `approve` from `NEW`. Read the marked registry row first; the remaining models are alternatives for a smaller graph, behavior-heavy states, or genuine hierarchy.
 
 | Transition model | How `approve` is expressed | Extension cost | First failure mode | Default? |
 |---|---|---|---|:---:|
@@ -58,7 +79,7 @@ Do not select a statechart merely because the diagram looks sophisticated. Selec
 
 ## 3. Persistence determines recovery and concurrency
 
-This axis decides where the authoritative lifecycle lives. Compare each option using the same operational questions rather than product features.
+This axis decides where the authoritative lifecycle lives. Read the bold database-CAS row as the continuation of the first-pass walkthrough; compare the alternatives only when its fit or boundary changes.
 
 | Persistence model | Source of truth | Atomicity and concurrency | Crash recovery | Timers/signals | Definition versioning | Observability / cost |
 |---|---|---|---|---|---|---|

@@ -45,29 +45,43 @@ In a normal GIL-enabled CPython build, only one thread executes Python bytecode 
 
 Free-threaded CPython builds can disable the GIL, but they are not the default, and an unsupported extension can re-enable it; see the [official free-threading guide](https://docs.python.org/3/howto/free-threading-python.html). Treat free-threading as an explicit tested deployment choice, not an assumption.
 
-Typical CPU work includes image transforms, compression, parsing, simulation, and model inference that does not already manage native parallelism.
+Typical CPU work includes pure-Python parsing, simulation, search, and numeric loops. Image transforms, compression, and model inference often run in native extensions that may release the GIL or create their own threads, so benchmark those workloads with both threads and processes instead of classifying them by name.
 
 Minimal local parallelism — save this as a file and run it:
 
 ```python
-import zlib
 from concurrent.futures import ProcessPoolExecutor
+from math import isqrt
 
-def compress_one(data: bytes) -> int:
-    return len(zlib.compress(data, level=9))
+
+def is_prime(number: int) -> bool:
+    if number < 2:
+        return False
+    for divisor in range(2, isqrt(number) + 1):
+        if number % divisor == 0:
+            return False
+    return True
+
+
+def count_primes(limit: int) -> int:
+    # The divisor loop executes Python bytecode, so the normal GIL prevents
+    # multiple threads from scaling this workload across cores.
+    return sum(is_prime(number) for number in range(limit))
 
 # The guard is not optional. Child processes re-import this module, so pool
 # construction at module level either raises RuntimeError or spawns recursively.
 if __name__ == "__main__":
-    payloads = [b"hello world " * 10_000, b"x" * 100_000, bytes(range(256)) * 400]
+    limits = [60_000, 70_000, 80_000, 90_000]
     with ProcessPoolExecutor(max_workers=4) as pool:
-        sizes = list(pool.map(compress_one, payloads))
-    assert len(sizes) == len(payloads)
-    assert all(0 < size < len(payload) for size, payload in zip(sizes, payloads))
-    print(sizes)
+        counts = list(pool.map(count_primes, limits))
+    assert len(counts) == len(limits)
+    assert counts == sorted(counts)
+    print(counts)
 ```
 
-Expected output is a list of three positive compressed sizes. Exact sizes can vary with the zlib build, so the program asserts the portable contract instead of copying a platform-specific value.
+Expected output is four increasing prime counts and a zero exit code. The exact values are less important than the mechanism: each submitted call spends most of its time in the Python divisor loop, so separate interpreters can execute the calls on separate cores. A `ThreadPoolExecutor` version should remain near one core on a normal GIL-enabled build.
+
+This distinction is why `zlib.compress()` is a poor demonstration of GIL-bound compute: CPython releases the GIL around the native compression call. Threads may scale that workload, while multiple processes may lose to serialization and memory overhead. Measure the real library rather than assuming every CPU-heavy function is Python-bytecode-bound.
 
 The `if __name__ == "__main__":` guard used to be described as a Windows and macOS concern. As of **Python 3.14 it is required on Linux too**: the default start method on POSIX platforms changed from `fork` to `forkserver` (macOS and Windows already defaulted to `spawn`). Every current default re-imports `__main__` in the child, so a `ProcessPoolExecutor` created at module scope is created again inside each child. Source: [`multiprocessing` documentation](https://docs.python.org/3/library/multiprocessing.html) — "Changed in version 3.14: On POSIX platforms the default start method was changed from *fork* to *forkserver*" (checked 2026-08-03).
 

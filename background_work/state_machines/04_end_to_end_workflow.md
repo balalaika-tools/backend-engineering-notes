@@ -110,9 +110,36 @@ RETURNING j.*;
 
 For a workload on the order of 10–50 jobs per day, start with DB polling unless the dispatch-latency requirement says otherwise. The database is already authoritative, and the polling load is normally negligible. Add the outbox and broker when bursts, many workers or worker types, near-immediate dispatch, or queue-depth autoscaling justify the extra failure surface. The hybrid design reduces idle polling by execution workers, but it does not remove database work: the publisher still polls in batches and every worker still claims and updates its job in the database.
 
+### First pass: follow only the happy-path rows
+
+Ignore crash windows on the first read. The six handoffs below are the complete successful lifecycle; the **bold rows** are the durable authority changes that later recovery mechanisms protect.
+
+| Handoff | Owner | Row changes after the handoff |
+|---|---|---|
+| **Approval commits** | API command service + PostgreSQL transaction | `workflow_runs`: `WAITING... v7 → GENERATION_QUEUED v8`; append `approve` history; insert `job-55 PENDING`; insert `outbox-9 UNPUBLISHED` |
+| Delivery hint publishes | Outbox publisher + broker | Broker accepts `{outbox-9, job-55}`; publisher sets `outbox-9.published_at`; workflow and job rows do not change |
+| **Execution is claimed** | Worker + PostgreSQL transaction | `job-55`: `PENDING → RUNNING`, `attempt=1`, `attempt_token=token-a`, lease set; append the matching execution transition |
+| **Provider result persists** | Current worker attempt | `provider_operations(run-42:generate_final:v3)`: `INTENT → SUCCEEDED`, provider result/reference recorded; `job-55` remains `RUNNING` until completion commits |
+| **Completion commits** | Current worker attempt + PostgreSQL transaction | `job-55`: `RUNNING → SUCCEEDED`, token cleared, result linked; `workflow_runs`: `GENERATION_RUNNING v9 → COMPLETED v10`; append completion history |
+| Result is read | API read model | No lifecycle mutation; the client observes `COMPLETED` and the stable result reference |
+
+The owner changes at every arrow, so each handoff carries durable evidence rather than process memory:
+
+```text
+API owns decision
+  ──committed job/outbox rows──► publisher owns delivery
+  ──ID-only broker hint────────► worker owns token-a
+  ──provider operation row─────► completion transaction owns terminal truth
+  ──completed rows─────────────► API read model serves the result
+```
+
+On this first pass, success is visible when one approval produces one terminal job, one completed workflow, and one stable provider operation key. The broker may deliver the hint twice without changing those counts.
+
 > **Key insight**: Recovery is a chain of evidence. Each durable row proves just enough for the next mechanism to continue without trusting the process that disappeared.
 
 ---
+
+> **Second pass (§§2–14)**: replay the same lifecycle one durable fact at a time. Each section pauses at one crash or race window, names the evidence that remains, and proves which owner may continue.
 
 ## 2. The starting rows make the precondition explicit
 

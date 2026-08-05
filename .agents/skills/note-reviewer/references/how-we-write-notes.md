@@ -23,6 +23,25 @@ Aim for the middle of the spectrum between soundbite and reference-manual dump:
 
 **The move:** build the correct mental model in plain language first, then attach the precise mechanism that makes it actionable. Say what to actually do, and which option is the default. One well-chosen example beats five abstract sentences.
 
+## The collection has a learning contract
+
+The goal is not merely complete notes. It is a path that takes a first-time reader through four layers in order:
+
+1. **Concept** — the problem, plain-language mental model, and minimum vocabulary.
+2. **Minimal usable mechanism** — the smallest complete implementation or worked trace that produces an observable result.
+3. **Production hardening** — the defaults and safeguards that make the mechanism safe under real load and failure.
+4. **Operational awareness** — failure symptoms, limits, trade-offs, recovery procedures, and the practitioner tricks that prevent or diagnose them.
+
+A single file does not need to carry all four layers. The **full learning path as a whole does**; shorter paths may stop at a declared milestone. Each file needs one primary role: foundation/tutorial, implementation, deep dive, decision guide, or reference. Do not turn every foundation note into a production reference in the name of completeness.
+
+Three rules keep the progression usable:
+
+- **Teach the smallest complete system before its advanced variants.** A reader should see one durable task before a stateful workflow, one claim before fencing and reconciliation, or one request before a full deployment topology.
+- **Provide stop points.** After the conceptual and minimal layers, say who can stop there and which new requirement makes the next layer necessary.
+- **Give each mechanism one canonical owner.** One note owns the full schema, implementation, or option set. Other notes use a small trace or excerpt and link to that owner instead of repeating the reference material.
+
+A first-time path fails this contract if every individual note is accurate but the reader must learn several production mechanisms before they can explain or build the baseline.
+
 ## Lead with the problem, then state the *why*
 
 Section 1 of every note has a fixed job: put the reader in the situation that makes this subject necessary, then answer it in one sentence. The definition comes after that, not before.
@@ -108,6 +127,14 @@ client = Client(api_key=os.environ["API_KEY"], timeout=30.0)
 One 60-line production block teaches less than these two blocks, despite containing more. The diff between them *is* the lesson.
 
 Where the example shows several tools combined to solve a real problem, the hardened version must show how they genuinely fit together — real integration, correct structure, the non-obvious tactics a practitioner actually reaches for — not just that each piece runs. The test: could a reader who copied it explain *why* it's built that way? If the example is explicitly a minimal illustration, that's fine — keep it labeled as one.
+
+Concept-heavy notes follow the same ladder without pretending diagrams are code:
+
+1. Start with a small concrete trace: named actors or rows, one input, one transition, and one visible outcome.
+2. Replay the same trace with the first crash, race, or scale constraint that requires hardening.
+3. Only then introduce the full schema, decision matrix, or production topology.
+
+A 100-line SQL block is not the minimal example merely because it is self-contained. The reader must be able to state what changed and why before reading the complete implementation.
 
 ## Headers make claims; one insight per note
 

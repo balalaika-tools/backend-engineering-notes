@@ -2,7 +2,7 @@
 
 > **Who this is for**: Engineers turning workload, durability, workflow, and operational constraints into a concrete background-work design.
 
-Before choosing a tool, read **[the responsibility model](01_overview.md)**, **[the reliability deep dives](reliability/README.md)**, and the relevant **[production operations](operations/README.md)**.
+Before choosing a tool, read **[the responsibility model](01_overview.md)**. First-time readers can use §§1–5 after building the **[minimal durable task](03_minimal_durable_task.md)**; read the **[reliability](reliability/README.md)** and **[production operations](operations/README.md)** sections before treating the choice as production-ready.
 
 ---
 

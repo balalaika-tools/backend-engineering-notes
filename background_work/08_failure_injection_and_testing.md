@@ -64,7 +64,82 @@ For time-based behavior, inject a clock into policy calculations and use databas
 
 ## 4. A real PostgreSQL race proves claim and fencing semantics
 
-Save this as `test_lease_race.py`, set `DATABASE_URL` to a disposable PostgreSQL database, install `psycopg[binary]`, and run `python test_lease_race.py`. It creates a uniquely named schema, opens separate connections, races two claimers, expires the winner, and proves its stale completion loses.
+Start with one invariant: two connections racing for one `PENDING` row produce one winner. Save this as `test_claim_race.py`, set `DATABASE_URL` to a disposable PostgreSQL database, install `psycopg[binary]`, and run `python test_claim_race.py`:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+import os
+import threading
+import uuid
+
+import psycopg
+from psycopg import sql
+
+
+DATABASE_URL = os.environ["DATABASE_URL"]
+SCHEMA = f"claim_test_{uuid.uuid4().hex}"
+barrier = threading.Barrier(2)
+
+
+def claim(worker_id: str) -> tuple[str, str] | None:
+    with psycopg.connect(DATABASE_URL, autocommit=True) as connection:
+        barrier.wait()  # Both real connections reach the claim boundary together.
+        return connection.execute(
+            sql.SQL(
+                """
+                WITH candidate AS (
+                    SELECT id
+                    FROM {}.jobs
+                    WHERE status = 'PENDING'
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
+                )
+                UPDATE {}.jobs AS j
+                SET status = 'RUNNING', worker_id = %s
+                FROM candidate
+                WHERE j.id = candidate.id
+                RETURNING j.id, j.worker_id
+                """
+            ).format(sql.Identifier(SCHEMA), sql.Identifier(SCHEMA)),
+            (worker_id,),
+        ).fetchone()
+
+
+def main() -> None:
+    with psycopg.connect(DATABASE_URL, autocommit=True) as setup:
+        setup.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(SCHEMA)))
+        setup.execute(
+            sql.SQL(
+                "CREATE TABLE {}.jobs "
+                "(id TEXT PRIMARY KEY, status TEXT NOT NULL, worker_id TEXT)"
+            ).format(sql.Identifier(SCHEMA))
+        )
+        setup.execute(
+            sql.SQL("INSERT INTO {}.jobs VALUES ('job-55', 'PENDING', NULL)").format(
+                sql.Identifier(SCHEMA)
+            )
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(claim, ["worker-A", "worker-B"]))
+        winners = [row for row in results if row is not None]
+        assert len(winners) == 1, results
+        print(f"one claim winner: {winners[0]}")
+    finally:
+        with psycopg.connect(DATABASE_URL, autocommit=True) as cleanup:
+            cleanup.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(SCHEMA)))
+
+
+if __name__ == "__main__":
+    main()
+```
+
+The visible success signal is `one claim winner: ...` and a zero exit code. If both calls return a row, selection and update were not one atomic database statement.
+
+This baseline is deliberately incomplete: if the winner dies, `job-55` remains `RUNNING`, and `worker_id` cannot reject its late completion after recovery. The second stage adds exactly those missing invariants.
+
+Save the hardened version below as `test_lease_race.py`. It creates a uniquely named schema, opens separate connections, repeats the claim race with a unique attempt token, expires the winner, replaces its token, and proves the stale completion loses.
 
 ```python
 from concurrent.futures import ThreadPoolExecutor

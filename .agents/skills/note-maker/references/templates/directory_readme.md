@@ -17,17 +17,21 @@ Every directory gets one. Directory READMEs are **intentionally minimal** — ju
 
 ## Contents
 
-| File | Topic | Description |
-|------|-------|-------------|
-| [01_name.md](01_name.md) | Topic | What it covers |
-| [02_name.md](02_name.md) | Topic | What it covers |
+| File | Role | Topic | Reader outcome |
+|------|------|-------|----------------|
+| [01_name.md](01_name.md) | Foundation | Topic | What the reader can explain or decide afterward |
+| [02_name.md](02_name.md) | Implementation | Topic | What the reader can build or verify afterward |
 
 ---
 
 ## Reading Order
 
-1. **Topic** — why this comes first
-2. **Topic** — builds on the previous
+**First-time outcome**: {the smallest useful capability this path teaches}.
+
+1. **Topic** — why this comes first and what it unlocks
+2. **Topic** — builds the minimal usable mechanism
+
+**Stop here if**: {the baseline meets the reader's need}. Continue when {specific hardening, scale, or operational requirement appears}.
 
 ---
 
@@ -36,3 +40,5 @@ Every directory gets one. Directory READMEs are **intentionally minimal** — ju
 - Basic understanding of X
 - [Other Section](../path/README.md) — if relevant
 ```
+
+The reading order is a learning contract, not a mirror of every file in the directory. Keep reference-only or specialist notes in Contents and route to them only when their requirement becomes relevant.
