@@ -2,7 +2,7 @@
 
 > **Who this is for**: Backend engineers who know a workflow needs durable state and now need to choose how to model, persist, and execute it.
 
-Before reading this, decide whether the lifecycle is really a workflow in **[When a Task Becomes a Workflow](02_when_a_task_becomes_a_workflow.md)**.
+Before reading this, decide whether the lifecycle is really a workflow in **[When a Task Becomes a Workflow](../foundations/02_task_or_workflow.md)**.
 
 ---
 
@@ -71,7 +71,7 @@ All four models below can correctly reject `approve` from `NEW`. Read the marked
 | State pattern | State objects expose allowed event methods | New class or method per behavior | Class proliferation hides the graph | For state-specific behavior |
 | Hierarchical statechart | Nested states inherit transitions such as `cancel` | Efficient when many substates share behavior | Entry/exit semantics become unfamiliar | For genuinely nested or concurrent regions |
 
-The default registry keeps the graph inspectable while application functions still own guards and emitted commands. The deep dive implements all four against the same event: [Application-Code Approaches](state_machines/01_application_code_approaches.md).
+The default registry keeps the graph inspectable while application functions still own guards and emitted commands. The deep dive implements all four against the same event: [Transition Modeling](state_machines/01_transition_modeling.md).
 
 Do not select a statechart merely because the diagram looks sophisticated. Select it when flattening `ACTIVE.RESEARCH.*` and `ACTIVE.GENERATION.*` duplicates the same cancellation, timeout, or authorization rule across many states.
 

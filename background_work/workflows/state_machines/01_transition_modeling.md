@@ -2,7 +2,7 @@
 
 > **Who this is for**: Python engineers choosing how application code will express a workflow transition graph.
 
-Before reading this, separate transition modeling from persistence and execution in **[State-Machine Design](../03_state_machine_design.md)**.
+Before reading this, separate transition modeling from persistence and execution in **[State-Machine Design](../01_state_machine_design.md)**.
 
 ---
 
@@ -289,4 +289,4 @@ Do not use state objects for a data-only graph, or hierarchy for a flat lifecycl
 
 ---
 
-**Next**: [Database-Backed State Machines](02_database_backed_state_machine.md)
+**Next**: [Relational Current-State Persistence](persistence/01_relational_current_state.md)

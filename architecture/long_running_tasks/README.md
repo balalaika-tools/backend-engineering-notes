@@ -50,7 +50,7 @@ The execution plane. Receives a task, does the work (inference, classification, 
 
 ---
 
-## Guide Structure
+## Contents
 
 | Part | File | What It Covers |
 |------|------|----------------|
@@ -81,7 +81,7 @@ Can the request safely fit the end-to-end deadline and resource budget?
 
 ---
 
-## Reading Order
+## Learning path
 
 **Working result by entry 2**: choose a client delivery contract and a worker-loss detection
 contract while retaining the Background Work job row as the source of truth.

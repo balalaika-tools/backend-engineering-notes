@@ -24,6 +24,11 @@ key=ord-42, cancelled ─┘
 The key is a routing and ordering choice, not merely metadata. A null key commonly distributes
 records for throughput and provides no entity-level affinity.
 
+Placement depends on the **serialized key bytes** and the client's partitioner, not the displayed
+string alone. Before mixing client languages or changing serializers, publish the same fixture key
+(`ord-42`) from each client and assert that the resulting partition matches. A mismatch means the
+clients encode or hash differently; pin compatible serializers and partitioners before rollout.
+
 ---
 
 ## 2. The correct key follows the invariant
@@ -74,4 +79,3 @@ entity-level sequencing, version checks, or a database transaction when the inva
 ---
 
 **Next**: [Consumer Groups, Offsets, and Rebalancing](04_consumer_groups_offsets_and_rebalancing.md)
-

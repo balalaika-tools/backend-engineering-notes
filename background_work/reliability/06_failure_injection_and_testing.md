@@ -2,7 +2,7 @@
 
 > **Who this is for**: Engineers validating a background-work recovery contract before production.
 
-Before reading this, follow the expected evidence chain in **[End-to-End Database-Backed Workflow](state_machines/04_end_to_end_workflow.md)**.
+Before reading this, follow the expected evidence chain in **[Database-Backed Editorial Workflow](../workflows/reference_workflows/01_database_backed_editorial_workflow.md)**.
 
 ---
 
@@ -310,7 +310,7 @@ The first seven rows are the **default recovery suite**. Add fan-out, scheduler,
 
 For each scenario, assert the complete row set: workflow state/version, transition history, job status/token/attempt, outbox/inbox evidence, provider operation, and result reference. A final API response alone can hide an inconsistent orphan row.
 
-The authorization and tenant-isolation contracts are defined in [Production Operations](operations/README.md). Their tests assert the absence or fair ordering of durable work, not only worker behavior after a message already exists.
+The authorization and tenant-isolation contracts are defined in [Production Operations](../operations/README.md). Their tests assert the absence or fair ordering of durable work, not only worker behavior after a message already exists.
 
 ---
 
@@ -345,4 +345,4 @@ Do not unit-test database isolation with mocks. Do not require every pull reques
 
 ---
 
-**Next**: [Part 9: Decision Guide](09_decision_guide.md)
+**Next**: [System Selection Guide](../frameworks/00_system_selection.md)

@@ -2,7 +2,7 @@
 
 > **Who this is for**: Python engineers selecting process, thread, coroutine, or mixed worker pools after choosing a durable transport.
 
-Before reading this, choose where pending work lives in **[Queue and Worker Architectures](04_queue_and_worker_architectures.md)**.
+Before reading this, choose where pending work lives in **[Queue and Worker Architectures](01_queue_and_worker_architectures.md)**.
 
 ---
 
@@ -331,7 +331,7 @@ Keep payloads small: pass object-store references between stages. Record stage c
 
 For most Python services, the default subset is **prefork/processes for CPU**, **threads for unavoidable blocking I/O**, and **coroutines for native async I/O**. Greenlet pools are a compatibility choice, not a general upgrade.
 
-Celery’s current [concurrency guide](https://docs.celeryq.dev/en/stable/userguide/concurrency/) recommends prefork as the starting point and notes that alternative pools can disable features such as `soft_timeout` and `max_tasks_per_child`. Framework details live in the [Celery note](frameworks/celery/overview.md).
+Celery’s current [concurrency guide](https://docs.celeryq.dev/en/stable/userguide/concurrency/) recommends prefork as the starting point and notes that alternative pools can disable features such as `soft_timeout` and `max_tasks_per_child`. Framework details live in the [Celery note](../frameworks/celery/overview.md).
 
 ---
 
@@ -349,8 +349,8 @@ scheduler firing: 2026-08-03T03:00Z
 
 Overlap policy belongs in the job contract: skip, coalesce, serialize, or permit parallel runs. The scheduler must not assume that firing once means executing once.
 
-The framework-neutral contract—including timezones, DST, misfires, catch-up, and one durable firing across replicas—is in [Scheduling and Periodic Work](06_scheduling_and_periodic_work.md). Use APScheduler for timing inside a controlled scheduler process; use Celery Beat or a platform scheduler when already operating that ecosystem; use durable timers in the workflow engine when the timer is part of workflow state.
+The framework-neutral contract—including timezones, DST, misfires, catch-up, and one durable firing across replicas—is in [Scheduling and Periodic Work](03_scheduling_and_periodic_work.md). Use APScheduler for timing inside a controlled scheduler process; use Celery Beat or a platform scheduler when already operating that ecosystem; use durable timers in the workflow engine when the timer is part of workflow state.
 
 ---
 
-**Next**: [Part 6: Scheduling and Periodic Work](06_scheduling_and_periodic_work.md)
+**Next**: [Scheduling and Periodic Work](03_scheduling_and_periodic_work.md)

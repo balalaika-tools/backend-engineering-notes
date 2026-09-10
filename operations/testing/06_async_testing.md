@@ -137,10 +137,16 @@ import pytest
 
 
 async def test_slow_endpoint_times_out():
+    never_completes = asyncio.Event()
+
     with pytest.raises(TimeoutError):
         async with asyncio.timeout(0.1):
-            await asyncio.sleep(1)
+            await never_completes.wait()
 ```
+
+The event makes the incomplete condition explicit; the timeout only bounds how long the test may
+wait. Do not coordinate two tasks with `sleep()` and hope CI schedules them in the intended order.
+Use events or barriers to force the interleaving, then assert after both tasks have joined.
 
 ---
 
@@ -164,7 +170,12 @@ async def test_signup_queues_email(client, mocker):
     spy.assert_called_once_with(user_id=1)
 ```
 
-For Dramatiq or other task queues, do not rely on the real broker — use its in-memory test broker. Covered briefly in the Dramatiq guides (see the [background_work](../../background_work/README.md) notes).
+This proves the in-process `BackgroundTasks` mechanism only. It does not prove that a separate
+worker discovers, deserializes, retries, or acknowledges durable work. For Dramatiq or another task
+queue, use a fake or in-memory broker for application and adapter tests, then keep a smaller marked
+integration profile with the production broker family and a real worker for delivery semantics.
+The [failure-injection guide](../../background_work/reliability/06_failure_injection_and_testing.md)
+owns crash, redelivery, fencing, and recovery tests.
 
 ---
 

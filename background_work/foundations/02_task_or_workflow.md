@@ -122,7 +122,7 @@ domain database owns workflow state
   └── queue workers execute the owed work
 ```
 
-That default is implemented in [Database-Backed State Machines](state_machines/02_database_backed_state_machine.md). The three design decisions remain independent; the next note makes the alternatives explicit.
+That default is implemented in [Relational Current-State Persistence](../workflows/state_machines/persistence/01_relational_current_state.md). The three design decisions remain independent; the workflow-design track makes the alternatives explicit.
 
 ---
 

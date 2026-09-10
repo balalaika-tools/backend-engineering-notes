@@ -2,7 +2,7 @@
 
 > **Who this is for**: Backend and data engineers deciding whether a dependency-heavy batch or data pipeline belongs in Apache Airflow.
 
-Before reading this, understand **[when a task becomes a workflow](../../02_when_a_task_becomes_a_workflow.md)** and **[task execution models](../../05_task_execution_models.md)**.
+Before reading this, understand **[when a task becomes a workflow](../../foundations/02_task_or_workflow.md)** and **[task execution models](../../execution/02_task_execution_models.md)**.
 
 These examples use Airflow 3’s public Task SDK. The [official supported-versions page](https://airflow.apache.org/docs/apache-airflow/stable/installation/supported-versions.html) lists the maintained 3.x line and Airflow 2 as end-of-life. New code should follow the [Airflow 3 public interface](https://airflow.apache.org/docs/apache-airflow/stable/public-airflow-interface.html), including `airflow.sdk` for DAG authoring.
 
@@ -440,4 +440,4 @@ Success is not merely green task instances. A green DAG that produced an incompl
 
 ---
 
-**Next**: [Decision Guide](../../09_decision_guide.md)
+**Next**: [Decision Guide](../00_system_selection.md)

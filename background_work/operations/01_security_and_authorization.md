@@ -2,7 +2,7 @@
 
 > **Who this is for**: Backend engineers securing APIs, schedulers, brokers, workers, and operator tools that can create or change durable work.
 
-Before reading this, understand named transitions and durable intent in **[A Database-Backed State Machine](../state_machines/02_database_backed_state_machine.md)**.
+Before reading this, understand named transitions and durable intent in **[Relational Current-State Persistence](../workflows/state_machines/persistence/01_relational_current_state.md)**.
 
 ---
 

@@ -2,7 +2,7 @@
 
 > **Who this is for**: Python engineers evaluating Celery for durable background tasks and fixed-stage pipelines.
 
-Before reading this, understand **[queue and worker architectures](../../04_queue_and_worker_architectures.md)** and **[task execution models](../../05_task_execution_models.md)**.
+Before reading this, understand **[queue and worker architectures](../../execution/01_queue_and_worker_architectures.md)** and **[task execution models](../../execution/02_task_execution_models.md)**.
 
 Celery’s current stable documentation is the [5.6 user guide](https://docs.celeryq.dev/en/stable/userguide/).
 
@@ -252,7 +252,7 @@ broker_transport_options = {"visibility_timeout": 6 * 3600}   # 6 hours
 - **Enable worker soft shutdown** so unacknowledged messages are re-queued deliberately on exit rather than waiting out the timer.
 - **Route long tasks to RabbitMQ**, where acknowledgement is real and tied to the connection rather than to a clock.
 
-Source: [Celery Redis broker documentation](https://docs.celeryq.dev/en/stable/getting-started/backends-and-brokers/redis.html), checked 2026-08-03. The framework-neutral version of this trade-off is in [queue and worker architectures](../../04_queue_and_worker_architectures.md#3-a-broker-needs-an-outbox-at-the-database-boundary) §3.
+Source: [Celery Redis broker documentation](https://docs.celeryq.dev/en/stable/getting-started/backends-and-brokers/redis.html), checked 2026-08-03. The framework-neutral version of this trade-off is in [queue and worker architectures](../../execution/01_queue_and_worker_architectures.md#3-a-broker-needs-an-outbox-at-the-database-boundary) §3.
 
 An ordinary task exception is not the same as worker loss. Configure retry only for transient exceptions; validation and authorization errors should become permanent failures. Configure `task_reject_on_worker_lost` only after verifying poison-task behavior, because repeated child crashes can create a destructive loop.
 

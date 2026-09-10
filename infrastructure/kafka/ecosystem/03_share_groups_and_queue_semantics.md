@@ -16,7 +16,22 @@ Concurrent record delivery weakens strict partition-order processing. Redelivery
 acknowledgment timeouts become central. Workers still need idempotent effects because leases,
 timeouts, and crashes can cause repeated delivery.
 
-Share groups became [production-ready in Kafka 4.2](https://kafka.apache.org/blog/2026/01/14/apache-kafka-4.2.0-release-announcement/)
+With a 30-second record lock, the per-record state is inspectable:
+
+```text
+t=00  worker-a receives offset 41, delivery-count=1
+t=08  ACCEPT 41                 → complete; no immediate redelivery
+t=10  worker-a receives offset 42, delivery-count=1
+t=18  RELEASE 42                → eligible now; worker-b receives count=2
+t=20  worker-a receives offset 43, delivery-count=1
+t=50  lock expires (no RENEW)   → worker-b receives 43, count=2
+t=55  REJECT 43                 → terminal for the group's configured policy
+```
+
+`RENEW` extends the lock for legitimate long work; it does not acknowledge success. The changed
+delivery count is the visible proof that release or timeout caused redelivery.
+
+Share groups became [production-ready in Kafka 4.2](https://kafka.apache.org/blog/2026/02/17/apache-kafka-4.2.0-release-announcement/)
 and continue to evolve in 4.3. Confirm client and broker support before choosing them; non-Java
 client coverage may lag the broker feature.
 

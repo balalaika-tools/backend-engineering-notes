@@ -13,7 +13,7 @@
 
 | Section | Description |
 |---------|-------------|
-| [core_concepts/](core_concepts/README.md) | Python primitives — decorators, exceptions, logging, configuration |
+| [core_concepts/](core_concepts/README.md) | Python contracts, iteration, decorators, exceptions, logging, configuration |
 | [concurrency/](concurrency/README.md) | Threads, processes, async/await, the GIL, event loops, contextvars, production patterns |
 | [httpx/](httpx/README.md) | HTTP client internals — pooling, timeouts, streaming |
 | [fastapi/](fastapi/README.md) | Framework patterns, DI, Pydantic, auth, middleware, WebSockets, streaming, API design |

@@ -24,11 +24,11 @@
 
 ---
 
-## Guide Structure
+## Contents
 
 | Part | Topic | Description |
 |------|-------|-------------|
-| [01](01_mental_model.md) | Mental Model | Why test, what to test, test pyramid, test doubles taxonomy, AAA pattern |
+| [01](01_mental_model.md) | Mental Model | Risk-to-proof maps, stable oracles, proof boundaries, test doubles |
 | [02](02_setup.md) | Setup | Install, project layout, `pyproject.toml`, running tests |
 | [03](03_unit_testing.md) | Unit Testing | Pure functions, Pydantic validators, test doubles, `unittest.mock`, Hypothesis |
 | [04](04_endpoint_testing.md) | Endpoint Testing | `TestClient` vs `AsyncClient`, `ASGITransport`, lifespan events, WebSockets |
@@ -44,24 +44,32 @@
 
 ---
 
-## Reading Paths
+## Learning paths
 
 ### New to Testing
 
-1. [01 — Mental Model](01_mental_model.md) — vocabulary and the pyramid
-2. [02 — Setup](02_setup.md) — get pytest running
+1. **Do:** [02 — Setup](02_setup.md) — get one sync and one async test discovered and passing
+2. **Understand:** [01 — Mental Model](01_mental_model.md) — map one production risk to its stable oracle and cheapest faithful boundary
 3. [03 — Unit Testing](03_unit_testing.md) — fastest feedback loop first
 4. [04 — Endpoint Testing](04_endpoint_testing.md) — climb to HTTP-level tests
 5. [12 — Common Mistakes](12_common_mistakes.md) — avoid the top pitfalls
 
+**Stop here if** the default suite is hermetic and every test can name the regression it protects.
+Continue into database, external-service, and CI profiles only when those real boundaries carry
+behavior your in-process tests cannot prove.
+
 ### Testing a Real FastAPI Service
 
-1. Skim 01–02
+1. [01 — Mental Model](01_mental_model.md) — write the risk-to-proof map before choosing fixtures
 2. [05 — Dependency Overrides](05_dependency_overrides.md) — the DI testing idiom
 3. [07 — Fixtures](07_fixtures.md) — share setup cleanly
 4. [08 — Database Testing](08_database_testing.md) — real Postgres, rolled back per test
 5. [09 — Mocking External Services](09_mocking_external.md) — when the thing you call is not a DB
 6. [10 — Test Patterns](10_test_patterns.md) — parametrize, snapshots, realistic examples
+
+For a queue or worker, continue with [failure injection and worker
+recovery](../../background_work/reliability/06_failure_injection_and_testing.md); an API test that
+records a publish call cannot prove serialization, acknowledgement, redelivery, or crash recovery.
 
 ### Testing LLM / Agent Features
 
@@ -102,6 +110,7 @@ def reset_overrides():
 async def test_health(client):
     response = await client.get("/health")
     assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
 ```
 
 With `asyncio_mode = "auto"` in `pyproject.toml` ([02](02_setup.md)), that's the whole setup for HTTP-level tests.
@@ -112,7 +121,7 @@ If the app depends on startup/shutdown lifespan work, wrap the async client with
 
 ## Key Principles
 
-- **Unit, integration, E2E serve different purposes.** Most tests should be unit. See [01](01_mental_model.md).
+- **Choose a boundary from the failure.** Use the cheapest profile that can expose it; do not target a fixed unit/integration ratio. See [01](01_mental_model.md).
 - **FastAPI's DI system makes testing easy.** Override dependencies with fakes. See [05](05_dependency_overrides.md).
 - **Clean up shared state.** Override leaks and module-level mutables ruin suites. See [12](12_common_mistakes.md).
 - **Patch where imported, not where defined.** See [03](03_unit_testing.md#patch-get-the-target-right).

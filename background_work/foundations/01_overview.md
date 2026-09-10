@@ -39,7 +39,7 @@ A framework may cover several rows, but the rows do not collapse into one. Celer
 - **Redis-backed transports** — Redis has no native acknowledgement, so these emulate it with a *visibility timeout*: a claimed message becomes visible again after a fixed period. Work that outlives the timeout is redelivered while the first worker is still running it, and unclean shutdowns can drop it entirely.
 - **Amazon SQS** — durable and replicated by default; the thing you configure is the visibility timeout, not the durability.
 
-Sources: [RabbitMQ quorum queues](https://www.rabbitmq.com/docs/quorum-queues), [Celery Redis broker notes](https://docs.celeryq.dev/en/stable/getting-started/backends-and-brokers/redis.html) (checked 2026-08-03). [Queue and Worker Architectures](04_queue_and_worker_architectures.md) §4 works through the consequences.
+Sources: [RabbitMQ quorum queues](https://www.rabbitmq.com/docs/quorum-queues), [Celery Redis broker notes](https://docs.celeryq.dev/en/stable/getting-started/backends-and-brokers/redis.html) (checked 2026-08-03). [Queue and Worker Architectures](../execution/01_queue_and_worker_architectures.md) §4 works through the consequences.
 
 > **Key insight**: Queue state answers “what delivery is pending?” Workflow state answers “what does the business process mean now?” One cannot safely stand in for the other.
 
@@ -97,7 +97,7 @@ Two decisions are often accidentally tied together:
 
 A managed queue can feed native `asyncio` workers. A database-backed queue can feed process workers. Celery can use prefork or threads. The transport does not decide whether a workload is CPU-bound or I/O-bound.
 
-See [Task Execution Models](05_task_execution_models.md) for the execution decision and [Queue and Worker Architectures](04_queue_and_worker_architectures.md) for the delivery decision.
+See [Task Execution Models](../execution/02_task_execution_models.md) for the execution decision and [Queue and Worker Architectures](../execution/01_queue_and_worker_architectures.md) for the delivery decision.
 
 ---
 
@@ -122,4 +122,4 @@ Do not introduce a queue merely to move a cheap, non-critical operation out of t
 
 ---
 
-**Next**: [Part 2: When a Task Becomes a Workflow](02_when_a_task_becomes_a_workflow.md)
+**Next**: [When a Task Becomes a Workflow](02_task_or_workflow.md)

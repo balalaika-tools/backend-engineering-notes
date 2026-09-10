@@ -23,5 +23,5 @@
 
 ## Prerequisites
 
-- [Queue and worker architectures](../../04_queue_and_worker_architectures.md)
+- [Queue and worker architectures](../../execution/01_queue_and_worker_architectures.md)
 - [Reliability deep dives](../../reliability/README.md)

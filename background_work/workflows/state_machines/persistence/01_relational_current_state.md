@@ -2,7 +2,7 @@
 
 > **Who this is for**: Engineers implementing a low-to-medium-volume service workflow in the same relational database as the domain record.
 
-Before reading this, implement named-event decisions as described in **[Application-Code Approaches](01_application_code_approaches.md)**.
+Before reading this, implement named-event decisions as described in **[Transition Modeling](../01_transition_modeling.md)**.
 
 ---
 
@@ -259,4 +259,4 @@ Do not use this model when authoritative history must be rebuilt into several pr
 
 ---
 
-**Next**: [Event-Sourced State Machines](03_event_sourced_state_machine.md)
+**Next**: [Event-Sourced State](02_event_sourced_state.md)

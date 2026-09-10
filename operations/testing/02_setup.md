@@ -69,7 +69,7 @@ Separating `unit/` from `integration/` lets you run the fast suite on every save
 
 ```bash
 pytest tests/unit              # < 1s feedback loop
-pytest tests/integration       # full stack, slower
+pytest -m integration tests/integration  # real disposable boundaries
 pytest                         # everything
 ```
 
@@ -84,6 +84,10 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+addopts = [
+    "--strict-markers",
+    "-m", "not integration and not e2e and not live",
+]
 
 # fail fast on unexpected warnings
 filterwarnings = [
@@ -93,8 +97,11 @@ filterwarnings = [
 
 # markers — declare them to avoid "unknown marker" warnings
 markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "integration: requires external services",
+    "integration: uses disposable real infrastructure",
+    "e2e: starts or calls the deployable system",
+    "live: calls a shared or paid external provider",
+    "llm_eval: runs a nondeterministic dataset evaluation",
+    "slow: unusually expensive within its proof profile",
 ]
 ```
 
@@ -104,20 +111,28 @@ markers = [
 
 ## Running Tests
 
-Start with three commands: `pytest` for the whole suite, `pytest -x` for a short feedback loop, and
-`pytest path/to/test.py::test_name` while working on one failure. The remaining selectors are
-lookup tools for larger suites.
+Start with three commands: `pytest` for the hermetic default suite, `pytest -x` for a short feedback
+loop, and `pytest path/to/test.py::test_name` while working on one failure. Select every broader
+profile explicitly so its prerequisites and failures remain visible.
 
 ```bash
-pytest                              # all tests, default output
-pytest -v                           # one line per test
+pytest                              # hermetic default profile
+pytest -v                           # hermetic profile, one line per test
 pytest -x                           # stop at first failure
 pytest -k "user and not slow"       # select by name
-pytest -m "not integration"         # select by marker
+pytest -m "not integration and not e2e and not live"  # explicit hermetic profile
+pytest -m integration               # disposable DB/broker/service emulator profile
+pytest -m e2e                       # deployed-process profile
+pytest -m live                      # shared/provider profile; credentials required
 pytest tests/unit/test_services.py::test_discount  # single test
 pytest --lf                         # last failed only
 pytest --ff                         # failed first, then the rest
 ```
+
+Markers describe execution cost or prerequisites, not business packages. An `orders` test can be a
+unit, integration, or E2E test; `@pytest.mark.orders` would not tell CI which environment it needs.
+A selected infrastructure or live job must fail when its prerequisite is missing—an all-skipped
+green job proves nothing.
 
 ---
 

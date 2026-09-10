@@ -2,7 +2,7 @@
 
 > **Who this is for**: Engineers evaluating whether immutable domain events should own workflow state instead of a mutable current-state row.
 
-Before reading this, understand the current-state-row model in **[Database-Backed State Machines](02_database_backed_state_machine.md)**.
+Before reading this, understand the current-state-row model in **[Relational Current-State Persistence](01_relational_current_state.md)**.
 
 ---
 
@@ -226,4 +226,4 @@ Do not choose event sourcing only to obtain an audit log. A current-state row pl
 
 ---
 
-**Next**: [End-to-End Database-Backed Workflow](04_end_to_end_workflow.md)
+**Continue with**: [Background-Work Reliability](../../../reliability/README.md)

@@ -24,6 +24,6 @@
 
 ## Prerequisites
 
-- [Queue and Worker Architectures](../04_queue_and_worker_architectures.md)
+- [Queue and Worker Architectures](../execution/01_queue_and_worker_architectures.md)
 - [Background-Work Reliability](../reliability/README.md)
-- [Durable Fan-Out and Join](../07_durable_fanout_and_join.md)
+- [Durable Fan-Out and Join](../workflows/02_durable_fanout_and_join.md)

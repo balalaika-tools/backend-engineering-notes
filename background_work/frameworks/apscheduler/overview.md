@@ -2,7 +2,7 @@
 
 > **Who this is for**: Python engineers who need cron, interval, or one-time triggers and must decide whether execution can remain local.
 
-Before reading this, understand why **[scheduling and execution are separate](../../01_overview.md#5-choose-durability-independently-from-concurrency)**.
+Before reading this, understand why **[scheduling and execution are separate](../../foundations/01_overview.md#5-choose-durability-independently-from-concurrency)**.
 
 ## What this framework is
 

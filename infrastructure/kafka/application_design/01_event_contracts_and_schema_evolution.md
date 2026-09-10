@@ -19,6 +19,57 @@ Validate this envelope at the producer boundary and again at the consumer bounda
 supports deduplication, `event_type` selects behavior, and `schema_version` makes interpretation
 explicit. Money uses minor units so binary floating point cannot change the amount.
 
+Save this minimal complete contract as `order-created-v1.schema.json`:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.example.com/order-created-v1.schema.json",
+  "type": "object",
+  "required": ["event_id", "event_type", "schema_version", "occurred_at", "producer", "data"],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1},
+    "event_type": {"const": "order.created"},
+    "schema_version": {"const": 1},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "producer": {"type": "string", "minLength": 1},
+    "data": {
+      "type": "object",
+      "required": ["order_id", "currency", "total_minor"],
+      "properties": {
+        "order_id": {"type": "string", "minLength": 1},
+        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+        "total_minor": {"type": "integer", "minimum": 0},
+        "coupon_code": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
+```
+
+`additionalProperties` permits an old reader to ignore additive fields. Required fields and their
+meaning stay strict. Save the following as `event_contract.py` beside the schema:
+
+```python
+import json
+from pathlib import Path
+
+from jsonschema import Draft202012Validator, FormatChecker
+
+SCHEMA = json.loads(Path(__file__).with_name("order-created-v1.schema.json").read_text())
+VALIDATOR = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
+
+
+def validate_event(event: dict) -> None:
+    VALIDATOR.validate(event)
+```
+
+Run `uv add jsonschema && uv run python -c 'from event_contract import validate_event; validate_event({"event_id":"evt-101","event_type":"order.created","schema_version":1,"occurred_at":"2026-09-04T09:15:00Z","producer":"orders-api","data":{"order_id":"ord-42","currency":"EUR","total_minor":2590}}); print("contract: valid")'`.
+The success signal is `contract: valid`; a `jsonschema.exceptions.ValidationError` names the first
+rejected path.
+
 ---
 
 ## 1. Independent deployment makes payload changes distributed changes
@@ -43,6 +94,42 @@ because JSON can represent both. The wire shape and business meaning changed.
 
 Use JSON Schema, Avro, or Protobuf plus a schema registry when automated compatibility enforcement
 is worth the platform cost. The registry checks structure; contract tests must still check meaning.
+
+This executable compatibility test makes both directions and a semantic break visible:
+
+```python
+from copy import deepcopy
+
+import pytest
+from jsonschema import ValidationError
+
+from event_contract import validate_event
+
+V1 = {
+    "event_id": "evt-101", "event_type": "order.created", "schema_version": 1,
+    "occurred_at": "2026-09-04T09:15:00Z", "producer": "orders-api",
+    "data": {"order_id": "ord-42", "currency": "EUR", "total_minor": 2590},
+}
+
+
+def test_additive_field_is_accepted_by_old_and_new_readers() -> None:
+    v2_writer = deepcopy(V1)
+    v2_writer["data"]["coupon_code"] = "AUTUMN10"
+    validate_event(V1)        # new reader still accepts retained v1
+    validate_event(v2_writer) # old contract ignores the additive field
+
+
+def test_semantic_wire_break_is_rejected() -> None:
+    broken = deepcopy(V1)
+    broken["data"]["total_minor"] = "25.90"  # major-unit string changes shape and meaning
+    with pytest.raises(ValidationError, match="not of type 'integer'"):
+        validate_event(broken)
+```
+
+Run `uv add --dev pytest && uv run pytest -q`. The observable result is `2 passed`; if the second
+test does not fail before `pytest.raises` catches it, the validator is not enforcing the money
+representation. A schema registry becomes the canonical shared lifecycle when contracts span many
+clients; see [Schema Registry and Serialization](05_schema_registry_and_serialization.md).
 
 ---
 
@@ -73,4 +160,3 @@ later revoke cleanly.
 ---
 
 **Next**: [Python Producers and Consumers](02_python_producers_and_consumers.md)
-

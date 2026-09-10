@@ -2,7 +2,7 @@
 
 > **Who this is for**: Engineers running shared background workers where tenants, workload classes, or provider accounts compete for finite capacity.
 
-Before reading this, understand bounded execution in **[Task Execution Models](../05_task_execution_models.md)** and bounded expansion in **[Durable Fan-Out and Join](../07_durable_fanout_and_join.md)**.
+Before reading this, understand bounded execution in **[Task Execution Models](../execution/02_task_execution_models.md)** and bounded expansion in **[Durable Fan-Out and Join](../workflows/02_durable_fanout_and_join.md)**.
 
 ---
 
@@ -217,7 +217,7 @@ execution units consumed = attempts, CPU-seconds, provider calls, or cost
 
 The logical pending reservation normally remains held across retries; releasing it after the first failure would let the tenant admit new work while the old obligation still exists. Attempt and wall-clock budgets bound execution amplification. Provider `429` responses should reduce or delay execution globally rather than allowing every tenant's independent retry loop to synchronize into another burst.
 
-Fan-out admission uses the declared or discovered child count before child rows are inserted. For unknown or huge sets, reserve a bounded page, persist an immutable manifest and cursor, and admit the next page only after capacity returns. The limits in [Durable Fan-Out and Join](../07_durable_fanout_and_join.md) remain authoritative per group; tenant budgets limit all groups together.
+Fan-out admission uses the declared or discovered child count before child rows are inserted. For unknown or huge sets, reserve a bounded page, persist an immutable manifest and cursor, and admit the next page only after capacity returns. The limits in [Durable Fan-Out and Join](../workflows/02_durable_fanout_and_join.md) remain authoritative per group; tenant budgets limit all groups together.
 
 Cost attribution uses the tenant that owns the logical operation, even when a shared service account performs the provider call. Record estimated cost at admission and actual cost at completion so material underestimation can stop later pages rather than discovering the overrun after the whole fan-out finishes.
 

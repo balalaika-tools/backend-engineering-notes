@@ -1,5 +1,3 @@
-up
-
 # Python Typing
 
 > **Who this is for**: Python developers who can read basic annotations and want
@@ -7,6 +5,10 @@ up
 > into a type-system puzzle.
 
 > Type hints are not enforced at runtime by Python itself — they exist for readers, IDEs, and type checkers (mypy, pyright). In this corpus Pydantic and FastAPI read them at runtime to derive validation and schemas, so on the backend they do real work beyond documentation. This guide covers the parts you actually hit writing FastAPI / SQLAlchemy / data code.
+
+To see that distinction instead of taking it on faith, start with
+[Run a Type Checker as an Engineering Feedback Loop](typing_workflow.md): one command accepts a
+valid contract and points at the exact invalid call after one argument changes.
 
 > **Key insight**: a type hint is a contract for tools and readers. It becomes
 > runtime behavior only when some library explicitly inspects it.
@@ -41,44 +43,38 @@ Old-style `List[str]`, `Dict[str, int]` from `typing` still work but are legacy.
 
 ---
 
-## 2. Optional — User Preference for This Corpus
+## 2. Nullable Values — Prefer `X | None`
 
-> ⚠️ **This codebase prefers `Optional[X]` over `X | None`.** Both are semantically identical in Python 3.10+, but `Optional` reads as "this can be missing" more clearly, especially in function signatures where `X | None` can visually fuse with adjacent punctuation.
+For this Python 3.11+ corpus, prefer the modern union spelling `X | None`.
+`Optional[X]` remains fully valid and means exactly the same thing, so expect to
+see it in older code and libraries.
 
 ```python
-from typing import Optional
-
-def lookup(user_id: int) -> Optional[User]:        # ✅ preferred in this repo
+def lookup(user_id: int) -> User | None:
     ...
 
-def lookup(user_id: int) -> User | None:           # works, not the convention here
+def greet(name: str | None):            # required; caller must pass name or None
+    ...
+
+def greet(name: str | None = None):     # omittable; defaults to None
     ...
 ```
 
-Both mean "returns a `User` or `None`". Pick the first in new code.
-
-**`Optional[X]` does not make a parameter optional.** It only says the type can be `None`. To make the argument omittable, also give it a default:
-
-```python
-def greet(name: Optional[str]):            # required; caller must pass name or None
-    ...
-
-def greet(name: Optional[str] = None):     # optional; defaults to None
-    ...
-```
+The annotation controls which values are accepted. The default controls whether
+the caller may omit the argument; “nullable” and “omittable” are separate
+decisions.
 
 ---
 
 ## 3. Union — "One of these types"
 
 ```python
-from typing import Union
-
-def parse(x: Union[int, str]) -> int:
+def parse(x: int | str) -> int:
     return int(x)
 ```
 
-In Python 3.10+ the pipe syntax `int | str` is equivalent. `Optional[X]` is literally `Union[X, None]`.
+The older `Union[int, str]` spelling is equivalent. `Optional[X]` is the older
+shorthand for `X | None`.
 
 For more than ~3 members, a `Union` is often a code smell — consider splitting into separate functions or using a protocol.
 
@@ -150,17 +146,17 @@ class PartialUser(TypedDict, total=False):
 Use when the function/class is parametric in some type and you want the return type to match the input type.
 
 ```python
-from typing import Optional, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
 
-def first(items: list[T]) -> Optional[T]:
+def first(items: list[T]) -> T | None:
     return items[0] if items else None
 
 
-x: Optional[int] = first([1, 2, 3])    # T is int
-y: Optional[str] = first(["a", "b"])   # T is str
+x: int | None = first([1, 2, 3])    # T is int
+y: str | None = first(["a", "b"])  # T is str
 ```
 
 With bounds (T must be a subclass of X):
@@ -344,7 +340,7 @@ class Service:
 | -------------------------------------------------- | --------------------------------------------------------- |
 | `x: int`                                         | Required query/body param (depending on where it appears) |
 | `x: int = 0`                                     | Optional, defaults to 0                                   |
-| `x: Optional[int] = None`                        | Optional, nullable                                        |
+| `x: int | None = None`                           | Omittable and nullable                                    |
 | `x: Literal["a", "b"]`                           | Validated enum; shows in OpenAPI as enum                  |
 | `x: list[Item]`                                  | Expects a JSON array of items                             |
 | `x: dict[str, int]`                              | Expects an object with string keys and int values         |
@@ -360,7 +356,7 @@ Python type contract. Make boundary annotations explicit.
 
 ## 13. Common Mistakes
 
-- **Writing `Optional[X]` when you mean "optional argument".** Add `= None` to make it omittable.
+- **Writing `X | None` when you mean "omittable argument".** Add `= None`; nullability alone does not provide a default.
 - **Annotating `list` or `dict` without type parameters.** `list` means `list[Any]` — no type checking. Always write `list[str]`, not bare `list`.
 - **Forgetting to annotate return types.** Type checkers infer them but the annotation documents intent for readers. Be explicit for public functions.
 - **Using `Any` to silence the type checker.** It works but disables checking for everything downstream. Prefer `object`, `Protocol`, or a real type.
@@ -373,12 +369,115 @@ Python type contract. Make boundary annotations explicit.
 
 ---
 
-## 14. See Also
+## 14. Four Contracts That Prevent Backend Bugs
 
+These are the next patterns to reach for after the basics. They solve different
+problems; they are not decorations to add to every signature.
+
+### Accept abstract inputs and return concrete results
+
+A function that only iterates should not require a `list`. Accept the smallest
+behavior the implementation needs, then return the concrete object callers
+actually receive:
+
+```python
+from collections.abc import Iterable, Mapping
+
+
+def active_ids(rows: Iterable[Mapping[str, object]]) -> list[str]:
+    return [str(row["id"]) for row in rows if row.get("active") is True]
+```
+
+This accepts lists, tuples, generators, and database-result iterables without
+giving up the useful promise that callers receive a reusable `list`.
+
+### `NewType` stops IDs with the same runtime shape being swapped
+
+User IDs and order IDs may both be strings, but passing one where the other is
+expected is still a logic error:
+
+```python
+from typing import NewType
+
+UserId = NewType("UserId", str)
+OrderId = NewType("OrderId", str)
+
+
+def load_order(order_id: OrderId) -> str:
+    return str(order_id)
+
+
+user_id = UserId("usr-42")
+load_order(user_id)  # type checker error: UserId is not OrderId
+```
+
+`NewType` has almost no runtime behavior: `UserId("usr-42")` returns the same
+string object. Validate untrusted ID formats separately.
+
+### `@overload` preserves an input-dependent return type
+
+A union return loses the relationship between a particular input and its
+result. Overloads describe that relationship to the checker; one ordinary
+implementation still runs at runtime:
+
+```python
+from typing import Literal, overload
+
+
+@overload
+def decode(raw: bytes, *, as_text: Literal[False] = False) -> bytes: ...
+
+
+@overload
+def decode(raw: bytes, *, as_text: Literal[True]) -> str: ...
+
+
+def decode(raw: bytes, *, as_text: bool = False) -> bytes | str:
+    return raw.decode("utf-8") if as_text else raw
+
+
+binary = decode(b"ok")                    # inferred as bytes
+text = decode(b"ok", as_text=True)        # inferred as str
+```
+
+Use overloads only when callers gain a meaningfully more precise result. If the
+function genuinely returns a union regardless of its inputs, annotate the union.
+
+### `TypeGuard` carries validated narrowing into the guarded branch
+
+After checking every element in an untrusted list, an ordinary `bool` helper
+does not tell a type checker what changed. `TypeGuard` makes the successful
+branch explicit:
+
+```python
+from typing import TypeGuard
+
+
+def is_str_list(value: list[object]) -> TypeGuard[list[str]]:
+    return all(isinstance(item, str) for item in value)
+
+
+def join_tags(value: list[object]) -> str:
+    if not is_str_list(value):
+        raise TypeError("every tag must be a string")
+    return ",".join(value)  # narrowed to list[str] here
+```
+
+The predicate must be correct; a false claim makes the static model unsound.
+Python 3.13 added `TypeIs`, which can narrow both branches when the narrowed type
+is compatible with the input. Use `TypeGuard` for this repository's Python 3.11
+baseline.
+
+---
+
+## 15. See Also
+
+- [typing_workflow.md](typing_workflow.md) — configure and run mypy, then keep it enforced in CI.
+- [iterators_and_generators.md](iterators_and_generators.md) — the `Iterable`/`Iterator` runtime protocol and lazy pipelines.
 - [context_managers.md](context_managers.md) — Protocol for `SupportsClose` pattern.
 - [../fastapi/03_pydantic.md](../fastapi/03_pydantic.md) — how Pydantic consumes annotations.
 - [../fastapi/01_http_and_parameter_mapping.md](../fastapi/01_http_and_parameter_mapping.md) — how FastAPI routes use annotations.
 
 ---
 
-**Next**: [Context Managers — setup, teardown, and resource lifetimes](context_managers.md)
+**Next**: [Iterators, Generators, and Lazy Pipelines](iterators_and_generators.md)

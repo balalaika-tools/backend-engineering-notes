@@ -1,272 +1,64 @@
 # Python Backend Development Notes
 
-> Practical patterns for building production-grade Python backends — FastAPI, async SQLAlchemy, Redis, Dramatiq, and more. Focused on AI and API-heavy projects.
+> Practical, production-oriented guides for designing, building, and operating Python backend systems — from APIs and data access to messaging, background work, architecture, testing, and deployment.
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0+-D71F00.svg)](https://www.sqlalchemy.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg?logo=postgresql&logoColor=white)](https://www.postgresql.org)
 [![Redis](https://img.shields.io/badge/Redis-7.x-DC382D.svg?logo=redis&logoColor=white)](https://redis.io)
-[![Pydantic](https://img.shields.io/badge/Pydantic-v2-E92063.svg)](https://pydantic.dev)
-[![Dramatiq](https://img.shields.io/badge/Dramatiq-task_queue-7B4EA6.svg)](https://dramatiq.io)
 
 ---
 
-## Structure
+## Start here
 
-```
-python-backend-notes/
-│
-│ ── FUNDAMENTALS ────────────────────────────────────────
-├── fundamentals/
-│   ├── core_concepts/     Python primitives — decorators, exceptions, logging, config
-│   ├── concurrency/       Threads, processes, async/await, event loops, contextvars
-│   ├── httpx/             HTTP client internals
-│   ├── fastapi/           Framework patterns + Safe & Scalable API calls
-│   ├── database/          PostgreSQL, SQLAlchemy, Alembic, async patterns
-│   └── auth/              JWT, OAuth 2.0, AWS Cognito
-│
-│ ── API COMMUNICATION ───────────────────────────────────
-├── apis/
-│   ├── restful/           REST constraints, HTTP semantics, security, evolution, operations
-│   ├── websockets/        Protocol, message contracts, reliability, security, and scaling
-│   └── webhooks/          Producer/consumer design, signatures, SSRF, retries, and replay
-│
-│ ── INFRASTRUCTURE ──────────────────────────────────────
-├── infrastructure/
-│   ├── redis/             Data structures, caching, pub/sub, Python clients
-│   └── kafka/             Event logs, consumers, reliability, and operations
-│
-│ ── BACKGROUND WORK ─────────────────────────────────────
-├── background_work/       Task/workflow architecture, reliability, execution, and frameworks
-│
-│ ── ADVANCED ARCHITECTURE ───────────────────────────────
-├── architecture/
-│   ├── hexagonal_architecture/  Ports, adapters, dependency direction, APIs, workers, and GenAI
-│   └── long_running_tasks/      Orchestration, worker patterns, client delivery, infra
-│
-│ ── OPERATIONS ──────────────────────────────────────────
-└── operations/
-    ├── testing/           pytest, AsyncClient, dependency overrides, fixtures
-    └── deployment/        Docker, Uvicorn, Gunicorn, health checks
-```
+| If you want to… | Start with | Working outcome |
+|---|---|---|
+| Build your first Python API | [FastAPI quick start](fundamentals/fastapi/README.md#quick-start-one-route-and-one-owned-http-client) | Run a route with validated input and an owned HTTP client |
+| Call external APIs or LLMs safely | [HTTPX](fundamentals/httpx/README.md) | Build a reusable client with bounded connections and timeouts |
+| Move work outside the request | [Minimal Durable Task](background_work/foundations/03_minimal_durable_task.md) | Submit, claim, retry, and inspect a recoverable job |
+| Separate business logic from transports | [Hexagonal Architecture](architecture/hexagonal_architecture/README.md) | Run one application action through API and worker adapters |
 
 ---
 
 ## Contents
 
-### Fundamentals — [full index](fundamentals/README.md)
+### Foundations — [full index](fundamentals/README.md)
 
-#### Core Concepts
+| Area | Covers | Start here |
+|---|---|---|
+| [Core Python](fundamentals/core_concepts/README.md) | Typing, iteration, data models, resource lifetimes, exceptions, logging, configuration, signals | [Type-checking workflow](fundamentals/core_concepts/typing_workflow.md) |
+| [Concurrency](fundamentals/concurrency/README.md) | Asyncio, threads, processes, shared-state safety, and runtime choices | [Decision guide](fundamentals/concurrency/00_decision_guide.md) |
+| [HTTP clients](fundamentals/httpx/README.md) | HTTPX request lifecycle, pooling, timeouts, streaming, and client selection | [Mental model](fundamentals/httpx/01_mental_model.md) |
+| [FastAPI](fundamentals/fastapi/README.md) | HTTP mapping, dependency injection, Pydantic, authentication, middleware, streaming, and API security | [Quick start](fundamentals/fastapi/README.md#quick-start-one-route-and-one-owned-http-client) |
+| [Databases](fundamentals/database/README.md) | PostgreSQL, Python drivers, SQLAlchemy, async sessions, pooling, Alembic, and SQLModel | [Databases and schemas](fundamentals/database/01_databases_and_schemas.md) |
+| [Authentication](fundamentals/auth/README.md) | JWT, OAuth 2.0, AWS Cognito, token validation, and authorization boundaries | [JWT](fundamentals/auth/jwt.md) |
 
-[![Python](https://img.shields.io/badge/Python-stdlib-3776AB.svg?logo=python&logoColor=white)](fundamentals/core_concepts/)
-[![structlog](https://img.shields.io/badge/structlog-latest-4B8BBE.svg)](https://www.structlog.org)
-[![pydantic-settings](https://img.shields.io/badge/pydantic--settings-2.x-E92063.svg)](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
+### Interfaces and infrastructure — [API index](apis/README.md) · [Infrastructure index](infrastructure/README.md)
 
-| Guide | Description |
-|-------|-------------|
-| [Typing](fundamentals/core_concepts/typing.md) | Contracts, `TypedDict`, generics, protocols, `ParamSpec`, `Annotated` |
-| [Data Model Choices](fundamentals/core_concepts/data_model_choices.md) | Standard dataclasses, Pydantic dataclasses, and `BaseModel` by boundary role |
-| [Context Managers](fundamentals/core_concepts/context_managers.md) | Resource lifetimes, protocol mechanics, async managers, `ExitStack` |
-| [Decorators](fundamentals/core_concepts/decorators.md) | Rebinding and closures, metadata, parameters, async wrappers, stacking |
-| [Exceptions](fundamentals/core_concepts/exceptions.md) | Stack unwinding, precise catches, chaining, translation, boundary policy |
-| [Logging](fundamentals/core_concepts/logging/README.md) | Correct hierarchy mechanics, handlers, async queues, production topology |
-| [Structured Logging](fundamentals/core_concepts/structlog_guide.md) | Processor pipelines, unified stdlib JSON, FastAPI context, testing |
-| [Configuration](fundamentals/core_concepts/configuration.md) | Source precedence, pydantic-settings, secret delivery, validation, caching |
-| [Unix Signals](fundamentals/core_concepts/signals.md) | Python delivery, graceful shutdown deadlines, Uvicorn, container PID 1 |
+| Area | Covers | Start here |
+|---|---|---|
+| [API Communication](apis/README.md) | REST, SOAP, GraphQL, gRPC, WebSockets, webhooks, contracts, and evolution | [API fundamentals](apis/01_api_fundamentals.md) |
+| [Redis](infrastructure/redis/README.md) | Data structures, caching, streams, rate limiting, persistence, and high availability | [Data structures](infrastructure/redis/01_data_structures.md) |
+| [Apache Kafka](infrastructure/kafka/README.md) | Retained logs, producers, consumers, schemas, reliability, operations, and ecosystem choices | [First event](infrastructure/kafka/fundamentals/README.md) |
+| [NATS JetStream](infrastructure/nats_jetstream/README.md) | Durable subjects, pull consumers, Python workers, reliable effects, recovery, and multitenancy | [First durable round trip](infrastructure/nats_jetstream/01_first_durable_round_trip.md) |
+| [Observability](infrastructure/observability/README.md) | OpenTelemetry, Python instrumentation, metrics export, collectors, and Prometheus | [Overview](infrastructure/observability/README.md) |
 
-#### Concurrency & Parallelism
+### Systems and production — [Architecture index](architecture/README.md) · [Operations index](operations/README.md)
 
-[![asyncio](https://img.shields.io/badge/asyncio-stdlib-3776AB.svg?logo=python&logoColor=white)](fundamentals/concurrency/)
+| Area | Covers | Start here |
+|---|---|---|
+| [Background Work](background_work/README.md) | Durable tasks, queues, scheduling, stateful workflows, reliability, operations, and framework selection | [Minimal durable task](background_work/foundations/03_minimal_durable_task.md) |
+| [Hexagonal Architecture](architecture/hexagonal_architecture/README.md) | Ports, adapters, composition, APIs, workers, GenAI, testing, and migration | [Why hexagonal architecture](architecture/hexagonal_architecture/01_why_hexagonal_architecture.md) |
+| [Long-Running Tasks](architecture/long_running_tasks/README.md) | Orchestration, client delivery, worker patterns, infrastructure, sagas, and outbox | [Overview](architecture/long_running_tasks/README.md) |
+| [Testing](operations/testing/README.md) | pytest, endpoint tests, dependency overrides, fixtures, databases, mocking, CI, and LLM tests | [Testing setup](operations/testing/02_setup.md) |
+| [Deployment](operations/deployment/README.md) | Docker, Uvicorn, Gunicorn, health checks, graceful shutdown, and production rollout | [Docker and deployment](operations/deployment/docker_and_deployment.md) |
 
-| Guide | Description |
-|-------|-------------|
-| [Decision Guide](fundamentals/concurrency/00_decision_guide.md) | When to use async, threads, processes, subinterpreters, or job queues |
-| [State and Safety](fundamentals/concurrency/01_state_and_safety.md) | Mutable state, sharing boundaries, thread safety, async safety, process safety |
-| [Alternative Runtimes](fundamentals/concurrency/02_alternative_runtimes.md) | Python 3.14 subinterpreters, free-threaded CPython, compatibility gates, and trade-offs |
-| [Asyncio](fundamentals/concurrency/async/README.md) | Event loop, tasks, `TaskGroup`, production async patterns, `contextvars` |
-| [Threads](fundamentals/concurrency/threads/README.md) | `ThreadPoolExecutor`, thread primitives, blocking I/O, shared memory |
-| [Processes](fundamentals/concurrency/processes/README.md) | `ProcessPoolExecutor`, pickling, start methods, CPU parallelism |
-
-#### HTTP Clients
-
-[![HTTPX](https://img.shields.io/badge/HTTPX-0.27+-009688.svg)](https://www.python-httpx.org)
-
-| Guide | Description |
-|-------|-------------|
-| [Mental Model](fundamentals/httpx/01_mental_model.md) | Request lifecycle, sockets, connection pools |
-| [Connection Pooling](fundamentals/httpx/02_connection_pooling.md) | Pool limits and configuration |
-| [Timeouts](fundamentals/httpx/03_timeouts.md) | Phase-based timeout configuration |
-| [Advanced Features](fundamentals/httpx/04_advanced.md) | HTTP/2, streaming, error handling |
-| [HTTPX vs aiohttp](fundamentals/httpx/05_httpx_vs_aiohttp.md) | When to choose which |
-
-#### FastAPI
-
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![Pydantic](https://img.shields.io/badge/Pydantic-v2-E92063.svg)](https://pydantic.dev)
-
-| Guide | Description |
-|-------|-------------|
-| [01 — HTTP & Parameter Mapping](fundamentals/fastapi/01_http_and_parameter_mapping.md) | HTTP request structure, parameter resolution |
-| [02 — Dependency Injection](fundamentals/fastapi/02_dependency_injection.md) | `Depends` mental model, patterns, testing |
-| [03 — Pydantic](fundamentals/fastapi/03_pydantic.md) | Data validation, serialization, FastAPI integration |
-| [04 — Authentication & Security](fundamentals/fastapi/04_authentication.md) | JWT, OAuth2, CORS, password hashing |
-| [05 — Middleware](fundamentals/fastapi/05_middleware.md) | Request ID, timing, CORS, error handling, ordering |
-| [06 — WebSockets](fundamentals/fastapi/06_websockets.md) | Connections, rooms, auth, heartbeat, scaling with Redis |
-| [07 — Error Responses](fundamentals/fastapi/07_error_handling.md) | Exception hierarchy, global handlers, consistent error shapes |
-| [08 — Streaming](fundamentals/fastapi/08_streaming.md) | StreamingResponse, SSE, file downloads, backpressure |
-| [09 — BackgroundTasks & APIRouter](fundamentals/fastapi/09_background_tasks_and_routers.md) | Fire-and-forget, app structure, OpenAPI customization |
-| [10 — API Design Conventions](fundamentals/fastapi/10_api_design.md) | REST shape, methods, pagination, versioning, OpenAPI hygiene |
-| [11 — API Security](fundamentals/fastapi/11_api_security.md) | Object/function/property authorization, abuse controls, SSRF, webhooks, and auditability |
-
-#### Safe & Scalable API Calls — [full README](fundamentals/fastapi/safe_and_scalable_api_calls/README.md)
-
-| Guide | Description |
-|-------|-------------|
-| [01 — Core Concepts](fundamentals/fastapi/safe_and_scalable_api_calls/01_core_concepts.md) | Mental model, the real concurrency limit |
-| [02 — Concurrency & Timeouts](fundamentals/fastapi/safe_and_scalable_api_calls/02_concurrency_and_timeouts.md) | Timeout layers, asyncio vs httpx |
-| [03 — Call Patterns](fundamentals/fastapi/safe_and_scalable_api_calls/03_call_patterns.md) | Gold standard pattern, retry logic |
-| [04 — Kubernetes](fundamentals/fastapi/safe_and_scalable_api_calls/04_kubernetes.md) | Multi-pod concerns, local vs global |
-| [05 — Production Architecture](fundamentals/fastapi/safe_and_scalable_api_calls/05_production_architecture.md) | Complete stack, execution order |
-| [06 — Advanced Patterns](fundamentals/fastapi/safe_and_scalable_api_calls/06_advanced_patterns.md) | Circuit breakers, bulkheads, hedging, priority queues |
-| [07 — Streaming Patterns](fundamentals/fastapi/safe_and_scalable_api_calls/07_streaming_patterns.md) | SSE, streaming timeouts |
-| [08 — Streaming Advanced](fundamentals/fastapi/safe_and_scalable_api_calls/08_streaming_advanced.md) | Multi-stream, aggregation |
-| [09 — Distributed Admission Control](fundamentals/fastapi/safe_and_scalable_api_calls/09_distributed_admission_control.md) | Cross-pod concurrency limits, Redis-backed atomic limiters |
-| [10 — LLM Token Economics](fundamentals/fastapi/safe_and_scalable_api_calls/10_llm_token_economics.md) | Per-tenant budgets, token accounting, cost observability, retry budgets |
-| [11 — Idempotency Keys](fundamentals/fastapi/safe_and_scalable_api_calls/11_idempotency.md) | Safe POST retries, dedup state machine, Postgres + Redis implementations |
-
-#### Database — [full README](fundamentals/database/README.md)
-
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg?logo=postgresql&logoColor=white)](https://www.postgresql.org)
-[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0+-D71F00.svg)](https://www.sqlalchemy.org)
-[![asyncpg](https://img.shields.io/badge/asyncpg-0.29+-2E6FA3.svg)](https://github.com/MagicStack/asyncpg)
-[![Alembic](https://img.shields.io/badge/Alembic-1.x-6BA81E.svg)](https://alembic.sqlalchemy.org)
-
-| Guide | Description |
-|-------|-------------|
-| [01 — Databases & Schemas](fundamentals/database/01_databases_and_schemas.md) | Relational DB foundations, PostgreSQL, ACID, SQL |
-| [02 — Python Drivers](fundamentals/database/02_python_drivers.md) | psycopg3, asyncpg — raw driver usage, COPY, bulk insert |
-| [03 — SQLAlchemy ORM](fundamentals/database/03_sqlalchemy_orm.md) | ORM concepts, SQLAlchemy 2.0, relationships, basic Alembic setup |
-| [04 — Async SQLAlchemy](fundamentals/database/04_async_sqlalchemy.md) | Async engine/session, FastAPI integration, CRUD, transactions |
-| [05 — Connection Pooling](fundamentals/database/05_connection_pooling.md) | Pool sizing, PgBouncer, monitoring, failure modes |
-| [06 — Alembic Deep-Dive](fundamentals/database/06_alembic.md) | Data migrations, enums, branching, CI/CD, production safety, lock-free patterns |
-| [07 — SQLModel Decision Guide](fundamentals/database/07_sqlmodel_decision_guide.md) | When combined SQLAlchemy/Pydantic models help and when direct SQLAlchemy is clearer |
-
-#### Auth — [full README](fundamentals/auth/README.md)
-
-[![JWT](https://img.shields.io/badge/JWT-RFC7519-000000.svg?logo=jsonwebtokens&logoColor=white)](https://jwt.io)
-[![OAuth2](https://img.shields.io/badge/OAuth2-RFC6749-EB5424.svg)](https://oauth.net/2/)
-[![AWS Cognito](https://img.shields.io/badge/AWS_Cognito-latest-FF9900.svg?logo=amazonaws&logoColor=white)](https://aws.amazon.com/cognito/)
-
-| Guide | Description |
-|-------|-------------|
-| [JWT](fundamentals/auth/jwt.md) | JWT structure, JWKS, trust chain, validation algorithm |
-| [OAuth 2.0](fundamentals/auth/oauth2.md) | Grant types, scopes, resource servers, M2M vs user-based |
-| [Cognito — Mental Model](fundamentals/auth/cognito/cognito.md) | User Pools vs Identity Pools, app clients, groups |
-| [Cognito — User Pool](fundamentals/auth/cognito/user-pool.md) | Pool setup, auth flows, user management, Lambda triggers |
-| [Cognito — Tokens](fundamentals/auth/cognito/tokens.md) | IdToken vs AccessToken, Cognito claims, validation |
-| [Cognito — OAuth in Practice](fundamentals/auth/cognito/oauth-jwt-guide.md) | M2M, user auth, FastAPI integration, testing |
+Each area index contains its complete ordered catalog of guides.
 
 ---
 
-### API Communication — [full index](apis/README.md)
-
-[![HTTP](https://img.shields.io/badge/HTTP-RFC_9110-005C9C.svg)](https://www.rfc-editor.org/rfc/rfc9110)
-[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.x-6BA539.svg?logo=openapiinitiative&logoColor=white)](https://spec.openapis.org/oas/)
-[![GraphQL](https://img.shields.io/badge/GraphQL-Specification-E10098.svg?logo=graphql&logoColor=white)](https://spec.graphql.org/)
-[![gRPC](https://img.shields.io/badge/gRPC-Protocol-244C5A.svg)](https://grpc.io/)
-
-| Guide | Description |
-|-------|-------------|
-| [API Fundamentals](apis/01_api_fundamentals.md) | Contracts, vocabulary, interaction models, and distributed failure |
-| [API Styles and Selection](apis/02_api_styles_and_selection.md) | When to choose REST, SOAP, GraphQL, gRPC, WebSocket, or webhooks |
-| [API Contracts and Lifecycle](apis/03_api_contracts_and_lifecycle.md) | Schema design, compatibility, governance, documentation, and deprecation |
-| [SOAP Overview](apis/04_soap_overview.md) | Focused guide to envelopes, WSDL, XML Schema, faults, and WS-* |
-| [GraphQL Overview](apis/05_graphql_overview.md) | Focused guide to schemas, resolvers, query cost, security, and evolution |
-| [gRPC Overview](apis/06_grpc_overview.md) | Focused guide to Protobuf, RPC shapes, deadlines, status, and compatibility |
-| [RESTful APIs](apis/restful/README.md) | 10-part production guide to HTTP resource APIs |
-| [WebSockets](apis/websockets/README.md) | 6-part guide to persistent bidirectional application channels |
-| [Webhooks](apis/webhooks/README.md) | 6-part guide to secure, durable event delivery across systems |
-
----
-
-### Infrastructure — [full index](infrastructure/README.md)
-
-#### Redis — [full README](infrastructure/redis/README.md)
-
-[![Redis](https://img.shields.io/badge/Redis-7.x-DC382D.svg?logo=redis&logoColor=white)](https://redis.io)
-[![redis-py](https://img.shields.io/badge/redis--py-5.x-DC382D.svg)](https://github.com/redis/redis-py)
-
-| Guide | Description |
-|-------|-------------|
-| [01 — Data Structures](infrastructure/redis/01_data_structures.md) | Strings, hashes, lists, sets, sorted sets, streams, expiration |
-| [02 — Pub/Sub & Streams](infrastructure/redis/02_pubsub_and_streams.md) | Fire-and-forget pub/sub, durable streams, consumer groups |
-| [03 — Caching Patterns](infrastructure/redis/03_caching_patterns.md) | Cache-aside, write-through, TTL, eviction, stampede prevention |
-| [04 — Python Clients](infrastructure/redis/04_python_clients.md) | redis-py sync/async, connection pooling, pipelines, FastAPI integration |
-| [05 — Rate Limiting](infrastructure/redis/05_rate_limiting.md) | Token bucket, sliding/fixed window, atomic Lua scripts |
-| [06 — HA & Persistence](infrastructure/redis/06_ha_and_persistence.md) | RDB/AOF, replication, Sentinel vs Cluster, failure modes, `maxmemory` |
-
-#### Apache Kafka — [full README](infrastructure/kafka/README.md)
-
-[![Apache Kafka](https://img.shields.io/badge/Apache_Kafka-4.3.x-231F20.svg?logo=apachekafka&logoColor=white)](https://kafka.apache.org/)
-
-| Guide | Description |
-|-------|-------------|
-| [Fundamentals](infrastructure/kafka/fundamentals/README.md) | First event, retained logs, partitioning, consumer groups, and KRaft replication |
-| [Application Design](infrastructure/kafka/application_design/README.md) | Event contracts, Python clients, processing loops, and topic topology |
-| [Reliability](infrastructure/kafka/reliability/README.md) | Delivery semantics, transactions, retries, replay, outbox, and CDC |
-| [Operations](infrastructure/kafka/operations/README.md) | Security, capacity, observability, upgrades, and disaster recovery |
-| [Ecosystem & Decisions](infrastructure/kafka/ecosystem/README.md) | Connect, stream processing, share groups, and alternatives |
-
----
-
-### Background Work — [full README](background_work/README.md)
-
-[![Celery](https://img.shields.io/badge/Celery-task_queue-37814A.svg)](https://docs.celeryq.dev/)
-[![Dramatiq](https://img.shields.io/badge/Dramatiq-task_queue-7B4EA6.svg)](https://dramatiq.io/)
-[![APScheduler](https://img.shields.io/badge/APScheduler-scheduler-4B8BBE.svg)](https://apscheduler.readthedocs.io/)
-[![Airflow](https://img.shields.io/badge/Airflow-orchestrator-017CEE.svg?logo=apacheairflow&logoColor=white)](https://airflow.apache.org/)
-
-| Guide | Description |
-|-------|-------------|
-| [01 — Overview](background_work/01_overview.md) | Separates business state, task execution, queue delivery, workers, schedulers, and engines |
-| [02 — Workflow Threshold](background_work/02_when_a_task_becomes_a_workflow.md) | Decides when progress needs durable business state and when one job is enough |
-| [03 — Minimal Durable Task](background_work/03_minimal_durable_task.md) | Builds one API-created job through claim, result lookup, retry, and safe replay |
-| [03 — State-Machine Design](background_work/03_state_machine_design.md) | Separates transition modeling, persistence/concurrency, and execution |
-| [State-Machine Deep Dives](background_work/state_machines/README.md) | Application code, relational CAS, event sourcing, and one end-to-end workflow |
-| [04 — Queue Architectures](background_work/04_queue_and_worker_architectures.md) | Database queues, brokers/outbox, managed queues, engines, and choreography |
-| [05 — Execution Models](background_work/05_task_execution_models.md) | Processes, bounded threads, bounded coroutines, and mixed workloads |
-| [06 — Scheduling](background_work/06_scheduling_and_periodic_work.md) | Calendar/interval rules, DST, misfires, overlap, and replica-safe durable firings |
-| [Reliability Deep Dives](background_work/reliability/README.md) | Atomicity, fencing, idempotency, retries/cancellation, reconciliation, and operations |
-| [07 — Fan-Out and Join](background_work/07_durable_fanout_and_join.md) | Bounded child sets, idempotent completions, and exactly one aggregate handoff |
-| [08 — Failure Testing](background_work/08_failure_injection_and_testing.md) | Crash, redelivery, lease, heartbeat, cancellation, retry, and redrive tests |
-| [09 — Decision Guide](background_work/09_decision_guide.md) | Practical selection matrix from durability, workflow, workload, and operational needs |
-| [Framework Notes](background_work/frameworks/README.md) | Celery, Dramatiq, APScheduler, orchestrator selection, Step Functions, Temporal, Airflow, and LangGraph |
-
----
-
-### Advanced Architecture — [full README](architecture/README.md)
-
-| Guide | Description |
-|-------|-------------|
-| [Hexagonal Architecture](architecture/hexagonal_architecture/README.md) | Derive ports and adapters from change pressure, then apply them to FastAPI, workers, GenAI, testing, and migrations |
-| [Long-Running Tasks](architecture/long_running_tasks/README.md) | Orchestration, worker patterns, client delivery, infrastructure, sagas/outbox |
-
----
-
-### Operations — [full index](operations/README.md)
-
-[![pytest](https://img.shields.io/badge/pytest-9.x-0A9EDC.svg?logo=pytest&logoColor=white)](https://pytest.org)
-[![Docker](https://img.shields.io/badge/Docker-latest-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com)
-
-| Guide | Description |
-|-------|-------------|
-| [FastAPI Testing](operations/testing/README.md) | 13-part guide — pytest, unit testing, endpoint testing, dependency overrides, fixtures, DB & mocking, LLM testing, coverage & CI |
-| [Docker & Deployment](operations/deployment/docker_and_deployment.md) | Multi-stage builds, Uvicorn, Gunicorn, health checks, graceful shutdown |
-
----
-
-## Reading Order
+## Learning paths
 
 > [!TIP]
 > Not sure where to start? Pick the path that matches your goal.
@@ -331,9 +123,9 @@ Continue to webhooks only when the provider pushes durable events back to you.
 **Working result by entry 2**: submit, claim, retry, and look up one durable task, then explain which
 state belongs to the application rather than the queue.
 
-1. **Do:** [Minimal Durable Task](background_work/03_minimal_durable_task.md) — build the smallest recoverable job and status endpoint.
-2. **Understand:** [Background Work Overview](background_work/01_overview.md) — separate business, delivery, execution, and scheduling state around that result.
-3. **Escalate deliberately:** [Task or Workflow?](background_work/02_when_a_task_becomes_a_workflow.md) — continue only when one job no longer captures the business lifecycle.
-4. **Decide:** [Decision Guide](background_work/09_decision_guide.md) — validate the smallest runtime that meets the recovery contract.
+1. **Do:** [Minimal Durable Task](background_work/foundations/03_minimal_durable_task.md) — build the smallest recoverable job and status endpoint.
+2. **Understand:** [Background Work Overview](background_work/foundations/01_overview.md) — separate business, delivery, execution, and scheduling state around that result.
+3. **Escalate deliberately:** [Task or Workflow?](background_work/foundations/02_task_or_workflow.md) — continue only when one job no longer captures the business lifecycle.
+4. **Decide:** [System Selection Guide](background_work/frameworks/00_system_selection.md) — validate the smallest runtime that meets the recovery contract.
 
 **Stop here if** one durable task and a result endpoint meet the product need. Continue to the [full Background Work course](background_work/README.md) for stateful workflows, reliability protocols, fan-out, and production operations; use [Long-Running Tasks](architecture/long_running_tasks/README.md) for client delivery, callbacks, and infrastructure-specific patterns.

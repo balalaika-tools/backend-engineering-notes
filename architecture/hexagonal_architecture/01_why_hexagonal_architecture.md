@@ -65,15 +65,15 @@ Imagine the next six requirements arrive over two releases:
 
 Each pressure suggests a separation:
 
-| Pressure | Boundary that answers it |
-|----------|--------------------------|
-| API and worker need the same operation | A public action in `application/` |
-| Classification rules must ignore transport | Business policy in `application/` or `domain/` |
-| The classifier is remote and nondeterministic | A caller-owned contract in `ports/` |
-| Model SDK details must not leak inward | A concrete implementation in `genai/` |
-| SQLAlchemy queries need one owner | Persistence code in `db/` |
-| Receipt handles and acknowledgements are transport details | A broker consumer in `adapters/` |
-| Concrete construction and disposal need one owner | A composition root in `bootstrap/` |
+| Pressure                                                   | Boundary that answers it                          |
+| ---------------------------------------------------------- | ------------------------------------------------- |
+| API and worker need the same operation                     | A public action in`application/`                |
+| Classification rules must ignore transport                 | Business policy in`application/` or `domain/` |
+| The classifier is remote and nondeterministic              | A caller-owned contract in`ports/`              |
+| Model SDK details must not leak inward                     | A concrete implementation in`genai/`            |
+| SQLAlchemy queries need one owner                          | Persistence code in`db/`                        |
+| Receipt handles and acknowledgements are transport details | A broker consumer in`adapters/`                 |
+| Concrete construction and disposal need one owner          | A composition root in`bootstrap/`               |
 
 The names are secondary. The reasoning is the architecture: code that changes for business reasons
 should not depend on code that changes because a provider, protocol, or process changes.
@@ -191,4 +191,3 @@ route dependencies, the action boundary has not actually been extracted.
 ---
 
 **Next**: [Part 2 — Build One Vertical Slice](02_build_one_vertical_slice.md)
-

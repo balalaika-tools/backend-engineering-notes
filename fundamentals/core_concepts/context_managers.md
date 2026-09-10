@@ -6,6 +6,10 @@
 
 > Context managers are the mechanism behind the `with` statement. They pair **setup** with **guaranteed teardown** — even when the body raises — and they are everywhere in this corpus: database sessions, file handles, HTTP clients, logging contexts, contextvars binding, FastAPI lifespan, FastAPI dependencies with `yield`, distributed locks.
 
+If generator suspension or one-shot iteration is unfamiliar, read
+[Iterators, Generators, and Lazy Pipelines](iterators_and_generators.md) first;
+Section 3 builds directly on that execution model.
+
 ---
 
 ## 1. What `with` Actually Does

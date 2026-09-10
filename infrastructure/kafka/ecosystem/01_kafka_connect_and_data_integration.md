@@ -5,9 +5,10 @@
 ## Choose Connect when the job is mostly translation and checkpointing
 
 A source connector reads an external system into Kafka; a sink connector writes Kafka records out.
-Connect workers manage tasks, offsets, scaling, and restart. Use a proven connector for standard CDC
-or warehouse delivery; write application code when domain decisions and external orchestration
-dominate.
+Connect workers manage tasks, offsets, scaling, and restart. Use a proven connector for standard
+**change data capture (CDC)**—reading committed changes from a database log rather than repeatedly
+polling tables—or warehouse delivery; write application code when domain decisions and external
+orchestration dominate.
 
 ---
 
@@ -20,6 +21,10 @@ protect the API, restrict client-config overrides, and version configuration. A 
 **Success signal:** stop and restart a task; it resumes from its checkpoint without missing data,
 and an unauthorized principal cannot alter connectors. Healthy worker processes alone can hide a
 failed task.
+
+Connect serializers and converters depend on the same contract lifecycle as applications. See
+[Schema Registry and Serialization](../application_design/05_schema_registry_and_serialization.md)
+for compatibility gates and restore requirements.
 
 > **Key insight**: Connect standardizes operational mechanics around data movement; it does not
 > remove the need to understand source consistency, sink idempotency, or schema evolution.
@@ -37,4 +42,3 @@ service or workflow engine with explicit domain state.
 ---
 
 **Next**: [Stream Processing](02_stream_processing.md)
-

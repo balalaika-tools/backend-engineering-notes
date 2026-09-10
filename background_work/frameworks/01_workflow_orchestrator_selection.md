@@ -2,7 +2,7 @@
 
 > **Who this is for**: Backend engineers deciding whether database jobs, a broker, or a durable workflow orchestrator should own a multi-step process.
 
-Before reading this, separate state, delivery, and execution in **[Queue and Worker Architectures](../04_queue_and_worker_architectures.md)**.
+Before reading this, separate state, delivery, and execution in **[Queue and Worker Architectures](../execution/01_queue_and_worker_architectures.md)**.
 
 ---
 

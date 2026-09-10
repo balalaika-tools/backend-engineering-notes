@@ -305,69 +305,75 @@ Processors run **top to bottom**. The renderer must be **last**. Filtering/enric
 
 ## 5. Integration with stdlib logging
 
-This is where most confusion happens. There are two integration directions:
+This is where most confusion happens: structlog events travel into stdlib
+logging, while foreign stdlib records must enter the processor pipeline there.
 
-### Direction 1: structlog wraps stdlib (Recommended)
+### Structlog and stdlib must meet at one formatter
 
-structlog processes your log events, then hands them to stdlib for output. You get structlog's API and processor chain, plus stdlib's handlers (file rotation, syslog, etc.).
+When structlog hands an event dictionary to stdlib logging,
+`ProcessorFormatter.wrap_for_formatter` prepares that dictionary for one
+specific consumer: `structlog.stdlib.ProcessorFormatter`. Installing only one
+half produces confusing output or formatter errors.
+
+This is the smallest complete bridge. Both structlog events and foreign stdlib
+records reach the same handler and renderer:
 
 ```python
 import logging
 import structlog
 
-def setup_logging():
-    # Configure stdlib -- this handles the actual output
-    logging.basicConfig(
-        format="%(message)s",
-        level=logging.INFO,
-    )
+def setup_logging() -> None:
+    shared_processors = [
+        structlog.stdlib.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+    ]
 
-    # Configure structlog to use stdlib as its output
     structlog.configure(
-        processors=[
-            structlog.contextvars.merge_contextvars,
-            structlog.processors.add_log_level,
-            structlog.processors.StackInfoRenderer(),
-            structlog.dev.set_exc_info,
-            structlog.processors.TimeStamper(fmt="iso"),
-            # Prepare event dict for stdlib
+        processors=shared_processors + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
     )
+
+    formatter = structlog.stdlib.ProcessorFormatter(
+        # Foreign stdlib records have not run structlog's processor chain.
+        foreign_pre_chain=shared_processors,
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            structlog.processors.JSONRenderer(),
+        ],
+    )
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+
+    root = logging.getLogger()
+    for existing_handler in root.handlers[:]:
+        root.removeHandler(existing_handler)
+        existing_handler.close()
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
 ```
 
-### Direction 2: stdlib logs go through structlog processors
-
-Third-party libraries use stdlib logging. You want their logs to also be structured JSON. Use `ProcessorFormatter`:
+After `setup_logging()`, these two calls each produce one JSON object containing
+`event`, `level`, and `timestamp`:
 
 ```python
-import logging
-import structlog
-
-formatter = structlog.stdlib.ProcessorFormatter(
-    processors=[
-        structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer(),
-    ],
-)
-
-handler = logging.StreamHandler()
-handler.setFormatter(formatter)
-
-root_logger = logging.getLogger()
-root_logger.addHandler(handler)
-root_logger.setLevel(logging.INFO)
+structlog.get_logger("app").info("order_loaded", order_id="ord-42")
+logging.getLogger("uvicorn.error").info("server ready")
 ```
 
-Now when uvicorn or SQLAlchemy logs with stdlib, the output is structured JSON.
+If the structlog line contains a Python dictionary representation or private
+`_record`/`_from_structlog` fields, the handler is not using the formatter above
+or `remove_processors_meta` is missing.
 
 ### Full Unified Setup (Production Pattern)
 
-This is the setup that handles **both** directions -- your code uses structlog, third-party code uses stdlib, and everything outputs consistent JSON:
+The baseline above proves the bridge. This version adds request context,
+positional-argument compatibility, logger names, stack information, exceptions,
+and safe replacement of owned handlers:
 
 ```python
 import logging
@@ -457,7 +463,15 @@ log.info("processing")
 
 ### Request Logging Middleware
 
-This is the production pattern. A middleware that automatically adds context to every log within a request. The middleware mechanics (setting a contextvar on entry, resetting on exit, propagating through async code) are the same as any request-id middleware — see [ContextVars - Pattern 1: Request ID Middleware](../concurrency/async/03_contextvars.md#pattern-1-request-id-middleware-fastapi) for the general form. The structlog-specific part below is how `bind_contextvars` puts the same values into every subsequent `structlog.get_logger().info(...)` call without any manual passing.
+This is the production pattern. An **ASGI (Asynchronous Server Gateway
+Interface) middleware** is a callable wrapped around the server/application
+protocol; it adds context to every log within a request. The middleware
+mechanics (setting a contextvar on entry, resetting on exit, propagating through
+async code) are the same as any request-id middleware — see [ContextVars -
+Pattern 1: Request ID Middleware](../concurrency/async/03_contextvars.md#pattern-1-request-id-middleware-fastapi)
+for the general form. The structlog-specific part below is how
+`bind_contextvars` puts the same values into every subsequent
+`structlog.get_logger().info(...)` call without any manual passing.
 
 ```python
 import re
@@ -655,20 +669,24 @@ try:
 except PaymentError as e:
     log.error(f"Payment failed for user 42: {e}")
 
-# ✅ Structured -- every field is searchable
+# ✅ Structured and bounded -- no raw exception text enters the event
 try:
     result = process_payment(user_id=42, amount=99.50)
 except PaymentError as e:
-    log.exception(
+    log.error(
         "payment_failed",
         user_id=42,
         amount=99.50,
         error_type=type(e).__name__,
-        error_detail=str(e),
     )
 ```
 
-The structured version lets you query: "show me all `payment_failed` events where `amount > 50` in the last hour."
+The structured version lets you query: "show me all `payment_failed` events
+where `amount > 50` in the last hour." It deliberately omits `str(e)` because
+upstream exception messages can contain response bodies, credentials, or
+personal data. Log reviewed machine-readable error codes when the exception
+provides them. Send unexpected tracebacks only through a pipeline that sanitizes
+exception text before storage.
 
 ### Performance Logging
 

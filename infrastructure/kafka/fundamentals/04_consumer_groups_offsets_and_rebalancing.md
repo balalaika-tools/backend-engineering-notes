@@ -49,8 +49,12 @@ allowed poll interval, trigger reassignment, and amplify duplicates. Bound work 
 partitions while capacity is full, or separate polling from bounded workers without committing
 past unfinished records.
 
-The modern consumer group protocol reduces client-side coordination work, but it does not remove
-the application requirement to finish or revoke partition work safely.
+The **consumer group protocol** is Kafka's newer broker-driven assignment protocol, selected by the
+client's effective `group.protocol=consumer`; the classic protocol keeps more coordination policy
+in clients. It reduces client-side coordination work, but it does not remove the application
+requirement to finish or revoke partition work safely. Treat the effective client and broker
+settings as an operational configuration boundary; [Kafka configuration and administration](../operations/05_configuration_and_topic_administration.md)
+owns the rollout check.
 
 ---
 
@@ -81,4 +85,3 @@ or a purpose-built work queue.
 ---
 
 **Next**: [Replication, Leaders, and KRaft](05_replication_leaders_and_kraft.md)
-

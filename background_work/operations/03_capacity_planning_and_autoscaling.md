@@ -2,7 +2,7 @@
 
 > **Who this is for**: Engineers sizing and autoscaling durable worker fleets against queue-age SLOs, resource limits, downstream quotas, and cost budgets.
 
-Before reading this, understand workload-specific concurrency in **[Task Execution Models](../05_task_execution_models.md)** and shared budgets in **[Multitenancy, Admission, and Fairness](02_multitenancy_admission_and_fairness.md)**.
+Before reading this, understand workload-specific concurrency in **[Task Execution Models](../execution/02_task_execution_models.md)** and shared budgets in **[Multitenancy, Admission, and Fairness](02_multitenancy_admission_and_fairness.md)**.
 
 ---
 
@@ -201,4 +201,4 @@ Do not promise a queue-age SLO for work whose arrival bound, retry/fan-out ampli
 
 ---
 
-**Next**: [Part 8: Failure Injection and Testing](../08_failure_injection_and_testing.md)
+**Next**: [Failure Injection and Testing](../reliability/06_failure_injection_and_testing.md)

@@ -32,7 +32,8 @@ The mistake is putting live model calls in every pull request. That makes your s
 # pyproject.toml
 [tool.pytest.ini_options]
 markers = [
-    "llm_eval: live or expensive LLM evaluation tests",
+    "live: calls a shared or paid external provider",
+    "llm_eval: runs a nondeterministic dataset evaluation",
 ]
 ```
 
@@ -40,7 +41,7 @@ Run them intentionally:
 
 ```bash
 pytest -m "not llm_eval"
-RUN_LLM_EVALS=1 pytest -m llm_eval
+RUN_LLM_EVALS=1 pytest -m "live and llm_eval"
 ```
 
 ---
@@ -365,13 +366,15 @@ import os
 import pytest
 
 
-pytestmark = pytest.mark.llm_eval
+pytestmark = [pytest.mark.live, pytest.mark.llm_eval]
 
 
-@pytest.mark.skipif(
-    os.getenv("RUN_LLM_EVALS") != "1",
-    reason="live LLM evals are opt-in",
-)
+@pytest.fixture(scope="module", autouse=True)
+def require_live_eval_opt_in():
+    if os.getenv("RUN_LLM_EVALS") != "1":
+        pytest.fail("live eval profile selected without RUN_LLM_EVALS=1")
+
+
 @pytest.mark.asyncio
 async def test_ticket_classifier_eval(live_model, eval_cases):
     correct = 0
@@ -382,6 +385,9 @@ async def test_ticket_classifier_eval(live_model, eval_cases):
 
     assert correct == len(eval_cases)
 ```
+
+The default suite excludes `live`, so it never reaches this guard. Once CI deliberately selects the
+profile, a missing opt-in or credential is a failed job rather than an all-skipped green check.
 
 Keep eval datasets boring and representative:
 

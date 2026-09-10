@@ -1207,19 +1207,19 @@ from contextlib import contextmanager
 
 
 @contextmanager
-def transaction():
-    print("BEGIN")
+def operation_scope():
+    print("ENTER")
     try:
-        yield "conn"
+        yield "resource"
     finally:
-        print("COMMIT")
+        print("EXIT")
 
 
-with transaction() as conn:
-    print("using", conn)
+with operation_scope() as resource:
+    print("using", resource)
 
 
-@transaction()
+@operation_scope()
 def do_work() -> None:
     print("working")
 
@@ -1227,8 +1227,8 @@ def do_work() -> None:
 do_work()
 ```
 
-Both calls print `BEGIN`, the body, then `COMMIT`. The difference: `with`
-gives you the yielded value (`conn`); `@transaction()` runs the whole function
+Both calls print `ENTER`, the body, then `EXIT`. The difference: `with`
+gives you the yielded value (`resource`); `@operation_scope()` runs the whole function
 inside the block but discards the yielded value, since there is no `as` target.
 Reach for `@contextmanager` over a hand-rolled decorator whenever the "before" and
 "after" halves are more natural to write as one function with a `yield` in the

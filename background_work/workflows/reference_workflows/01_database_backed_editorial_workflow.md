@@ -4,7 +4,7 @@
 
 > **Who this is for**: Engineers assembling a database-backed state machine, broker delivery, and workers into one recoverable lifecycle.
 
-Before reading this, understand the schema and compare-and-set boundary in **[Database-Backed State Machines](02_database_backed_state_machine.md)**.
+Before reading this, understand the schema and compare-and-set boundary in **[Relational Current-State Persistence](../state_machines/persistence/01_relational_current_state.md)**.
 
 ---
 
@@ -258,7 +258,7 @@ The API stops after this commit. It does not call the broker as a second side ef
 
 **Verification**: kill the API at every injected statement boundary. Assert the database contains either all four new facts or none, never a queued workflow without job/outbox evidence.
 
-See [Atomic Transitions and Outbox](../reliability/01_atomic_transitions_and_outbox.md) for the SQL and publisher contract.
+See [Atomic Transitions and Outbox](../../reliability/01_atomic_transitions_and_outbox.md) for the SQL and publisher contract.
 
 ---
 
@@ -319,7 +319,7 @@ run-42 | version 9 | claim_generation | GENERATION_RUNNING | token-a
 
 **Verification**: race two claims for `job-55`; one returns the row and the other returns zero. Claim only as many rows as the worker has free execution slots.
 
-See [Leases, Heartbeats, and Fencing](../reliability/02_leases_heartbeats_and_fencing.md).
+See [Leases, Heartbeats, and Fencing](../../reliability/02_leases_heartbeats_and_fencing.md).
 
 ---
 
@@ -365,7 +365,7 @@ It sends the same key and the exact hashed request to the provider. An existing 
 
 **Verification**: inject a crash after provider commit, redeliver, and assert two HTTP attempts but one provider operation. Reuse the key with changed input and assert a conflict before any provider call.
 
-See [Idempotency and External Effects](../reliability/03_idempotency_and_external_effects.md).
+See [Idempotency and External Effects](../../reliability/03_idempotency_and_external_effects.md).
 
 ---
 
@@ -449,7 +449,7 @@ In the hybrid variant, returning the job to `PENDING` and inserting the next due
 
 **Verification**: freeze database time and assert no claim or publish occurs before the due time, then assert the hint is delivered and only one worker claims attempt 2. Exhaust the attempt budget and assert no additional attempt starts after terminal failure.
 
-See [Retries, Timeouts, and Cancellation](../reliability/04_retries_timeouts_and_cancellation.md).
+See [Retries, Timeouts, and Cancellation](../../reliability/04_retries_timeouts_and_cancellation.md).
 
 ---
 
@@ -517,7 +517,7 @@ In the hybrid variant, an unacknowledged broker message may redeliver first, but
 
 **Verification**: pause A beyond lease expiry, let B recover and complete, then resume A. Assert one provider effect, one completion history row, and zero successful stale-token updates.
 
-See [Reconciliation, DLQ, and Observability](../reliability/05_reconciliation_dlq_and_observability.md).
+See [Reconciliation, DLQ, and Observability](../../reliability/05_reconciliation_dlq_and_observability.md).
 
 ---
 
@@ -540,10 +540,10 @@ The system is ready when one integration suite proves these observable outcomes:
 
 **How you know it is working**: for any run, an operator can move from workflow transition to job attempt, attempt token, provider operation, outbox message, and final artifact using stable IDs. Queue depth alone is not this success signal.
 
-Do not copy this full design for one best-effort email or one transaction-local calculation. Start with the smallest recovery contract in [When a Task Becomes a Workflow](../02_when_a_task_becomes_a_workflow.md), then add only the mechanisms whose failure timelines are real for the workload.
+Do not copy this full design for one best-effort email or one transaction-local calculation. Start with the smallest recovery contract in [When a Task Becomes a Workflow](../../foundations/02_task_or_workflow.md), then add only the mechanisms whose failure timelines are real for the workload.
 
-This walkthrough is also a small hand-built workflow orchestrator: the application owns transition history, job scheduling, leases, retries, delayed wake-ups, and reconciliation. That is reasonable for a few stable states and 10–50 jobs per day. When durable timers, human waits, signals, parallel branches, compensation, child workflows, and definition migrations multiply, consider making **Step Functions Standard** or **Temporal** the coordination authority instead. The engine replaces much of the custom control plane; it does not replace domain transactions or provider idempotency. See [Workflow Orchestrator Selection](../frameworks/00_workflow_orchestrator_selection.md).
+This walkthrough is also a small hand-built workflow orchestrator: the application owns transition history, job scheduling, leases, retries, delayed wake-ups, and reconciliation. That is reasonable for a few stable states and 10–50 jobs per day. When durable timers, human waits, signals, parallel branches, compensation, child workflows, and definition migrations multiply, consider making **Step Functions Standard** or **Temporal** the coordination authority instead. The engine replaces much of the custom control plane; it does not replace domain transactions or provider idempotency. See [Workflow Orchestrator Selection](../../frameworks/01_workflow_orchestrator_selection.md).
 
 ---
 
-**Next**: [Part 4: Queue and Worker Architectures](../04_queue_and_worker_architectures.md)
+**Next**: [Failure Injection and Testing](../../reliability/06_failure_injection_and_testing.md)

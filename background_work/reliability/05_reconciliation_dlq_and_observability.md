@@ -244,4 +244,4 @@ Do not call the system production-ready until an operator can answer: Which work
 
 ---
 
-**Next**: [Durable Fan-Out and Join](../07_durable_fanout_and_join.md)
+**Next**: [Durable Fan-Out and Join](../workflows/02_durable_fanout_and_join.md)

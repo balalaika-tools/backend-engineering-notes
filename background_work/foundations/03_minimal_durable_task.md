@@ -2,7 +2,7 @@
 
 > **Who this is for**: Backend engineers who need one independent task to survive request and worker-process loss, but do not yet need a multi-step business workflow.
 
-Before reading this, understand the responsibility boundaries in **[Background Work Overview](01_overview.md)** and confirm that the work is still one task with **[When a Task Becomes a Workflow](02_when_a_task_becomes_a_workflow.md)**.
+Before reading this, understand the responsibility boundaries in **[Background Work Overview](01_overview.md)** and confirm that the work is still one task with **[When a Task Becomes a Workflow](02_task_or_workflow.md)**.
 
 ---
 
@@ -140,7 +140,7 @@ RETURNING j.id, j.input_ref, j.attempt, j.attempt_token, j.lease_expires_at;
 
 The returned token identifies this ownership epoch. Every heartbeat, retry, and completion checks it; a worker process name is useful in logs but is not unique enough to fence a late attempt.
 
-For work longer than the lease, heartbeat while the parser runs. If a heartbeat updates zero rows, stop local work and make no terminal database write. The complete ownership protocol—including heartbeat supervision and stale-worker recovery—belongs to **[Leases, Heartbeats, and Fencing](reliability/02_leases_heartbeats_and_fencing.md)**.
+For work longer than the lease, heartbeat while the parser runs. If a heartbeat updates zero rows, stop local work and make no terminal database write. The complete ownership protocol—including heartbeat supervision and stale-worker recovery—belongs to **[Leases, Heartbeats, and Fencing](../reliability/02_leases_heartbeats_and_fencing.md)**.
 
 **Worked signal**: racing two database connections for one row returns one job to exactly one connection. If both workers begin parsing, the claim is not one atomic statement or the worker started before commit.
 
@@ -180,7 +180,7 @@ Content-Type: application/json
 {"job_id":"job-42","status":"SUCCEEDED","result_ref":"s3://results/document-parses/job-42/result.json"}
 ```
 
-If the task sends email, charges money, or calls another non-transactional system, a deterministic object key is not enough. Use the provider's stable operation key and local effect evidence from **[Idempotency and External Effects](reliability/03_idempotency_and_external_effects.md)**.
+If the task sends email, charges money, or calls another non-transactional system, a deterministic object key is not enough. Use the provider's stable operation key and local effect evidence from **[Idempotency and External Effects](../reliability/03_idempotency_and_external_effects.md)**.
 
 ---
 
@@ -213,7 +213,7 @@ RETURNING id, status, attempt, next_attempt_at;
 
 Use the same `job_id`, `request_key`, and deterministic result/effect key on every attempt. Creating a fresh job during retry loses the original budget, status URL, and deduplication identity.
 
-If a worker disappears, a bounded recovery pass moves only expired `RUNNING` jobs back to `PENDING`; the next claim generates a new token. Retry classification, jitter, attempt limits, elapsed-time budgets, and cancellation are expanded in **[Retries, Timeouts, and Cancellation](reliability/04_retries_timeouts_and_cancellation.md)**.
+If a worker disappears, a bounded recovery pass moves only expired `RUNNING` jobs back to `PENDING`; the next claim generates a new token. Retry classification, jitter, attempt limits, elapsed-time budgets, and cancellation are expanded in **[Retries, Timeouts, and Cancellation](../reliability/04_retries_timeouts_and_cancellation.md)**.
 
 **Worked signal**: a retry is invisible before `next_attempt_at`, becomes claimable afterward, increments `attempt`, and still resolves through `/document-parses/job-42`. If a second job ID appears, retry was implemented as resubmission.
 
@@ -238,10 +238,10 @@ Test one crash after claim and one crash after the result object is written but 
 
 ⚠️ An unbounded polling query can turn the primary database into the bottleneck; keep the partial ready index and claim only real execution capacity.
 
-Do not add workflow state merely to represent worker attempts. Move to a workflow when users act on intermediate states, multiple steps branch or join, timers and signals outlive attempts, or compensation becomes part of the business contract. At that point continue to **[State-Machine Design](03_state_machine_design.md)**.
+Do not add workflow state merely to represent worker attempts. Move to a workflow when users act on intermediate states, multiple steps branch or join, timers and signals outlive attempts, or compensation becomes part of the business contract. At that point continue to **[State-Machine Design](../workflows/01_state_machine_design.md)**.
 
-**Stop here if** one independent task, one status URL, bounded retry, and replay-safe output satisfy the product. Use the [Decision Guide](09_decision_guide.md) to validate the transport and execution choice; continue into state machines and reliability deep dives only when a specific failure or lifecycle requirement justifies them.
+**Stop here if** one independent task, one status URL, bounded retry, and replay-safe output satisfy the product. Use the [System Selection Guide](../frameworks/00_system_selection.md) to validate the transport and execution choice; continue into state machines and reliability deep dives only when a specific failure or lifecycle requirement justifies them.
 
 ---
 
-**Next**: [Part 9: Decision Guide](09_decision_guide.md)
+**Next**: [System Selection Guide](../frameworks/00_system_selection.md)

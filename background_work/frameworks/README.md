@@ -14,11 +14,12 @@
 
 ## Contents
 
-Start with the **workflow orchestrator selection** row only when a process has durable multi-step coordination; otherwise jump directly to the scheduler or worker runtime that matches the task.
+Start with **system selection** when the delivery or runtime shape is still open. Use **workflow orchestrator selection** only when the process has durable multi-step coordination.
 
 | Framework | Role | Notes |
 |---|---|---|
-| **[Workflow orchestrator selection](00_workflow_orchestrator_selection.md)** | **Architecture decision** | **Relates custom DB/broker coordination to Step Functions, Temporal, Airflow, and LangGraph** |
+| **[System selection](00_system_selection.md)** | **System decision** | **Chooses the smallest state owner, delivery mechanism, execution model, and runtime from the recovery contract** |
+| **[Workflow orchestrator selection](01_workflow_orchestrator_selection.md)** | **Architecture decision** | **Relates custom DB/broker coordination to Step Functions, Temporal, Airflow, and LangGraph** |
 | [Celery](celery/README.md) | Task queue and worker runtime | Brokers, results, pools, acknowledgements, routing, retries, Beat, and outbox boundaries |
 | [Dramatiq](dramatiq/README.md) | Task queue and worker runtime | Actors, brokers, middleware, retries, rate limits, composition, and monitoring |
 | [Dramatiq + FastAPI](dramatiq/fastapi_integration.md) | Web integration | Durable status records, broker initialization, testing, containers, and worker scaling |
@@ -38,7 +39,7 @@ Choose one deterministic branch; do not read every framework.
 **Working result by entry 1**: execute one persisted, overlap-aware APScheduler firing.
 
 1. **Do:** [APScheduler overview](apscheduler/overview.md).
-2. **Understand:** [Scheduling and periodic work](../06_scheduling_and_periodic_work.md) — distinguish a stored schedule from an exactly-once business effect.
+2. **Understand:** [Scheduling and periodic work](../execution/03_scheduling_and_periodic_work.md) — distinguish a stored schedule from an exactly-once business effect.
 
 **Stop here if** one application owns scheduling and execution. Continue to a task queue when work
 must be distributed independently of the scheduler process.
@@ -48,7 +49,7 @@ must be distributed independently of the scheduler process.
 **Working result by entry 1**: execute one worker task and observe its result.
 
 1. **Do:** choose [Celery](celery/overview.md) or [Dramatiq](dramatiq/overview.md), not both.
-2. **Understand:** [Queue and worker architectures](../04_queue_and_worker_architectures.md) and [task execution models](../05_task_execution_models.md).
+2. **Understand:** [Queue and worker architectures](../execution/01_queue_and_worker_architectures.md) and [task execution models](../execution/02_task_execution_models.md).
 3. **Harden:** [Atomic transitions and outbox](../reliability/01_atomic_transitions_and_outbox.md), [idempotent effects](../reliability/03_idempotency_and_external_effects.md), and [reconciliation](../reliability/05_reconciliation_dlq_and_observability.md).
 
 **Stop here if** each job is an independent unit with application-owned status. Continue to an
@@ -59,7 +60,7 @@ engine when the product needs durable multi-step coordination, signals, or long-
 **Working result by entry 2**: choose an engine boundary and run the selected framework's smallest
 durable workflow or checkpoint/resume trace.
 
-1. **Decide:** [Workflow orchestrator selection](00_workflow_orchestrator_selection.md).
+1. **Decide:** [Workflow orchestrator selection](01_workflow_orchestrator_selection.md).
 2. **Do one branch:** [Temporal](temporal/overview.md), [Airflow](airflow/overview.md), or [LangGraph](langgraph/overview.md), according to that decision.
 3. **Harden:** [Retries, timeouts, and cancellation](../reliability/04_retries_timeouts_and_cancellation.md) plus the exact reliability note named by the chosen engine's external-effect boundary.
 
@@ -70,6 +71,6 @@ contract. Compare a second product only when a named requirement remains unmet.
 
 ## Prerequisites
 
-- [Background Work overview](../01_overview.md)
-- [Queue and worker architectures](../04_queue_and_worker_architectures.md)
-- [Task execution models](../05_task_execution_models.md)
+- [Background-Work Foundations](../foundations/README.md)
+- [Queue and worker architectures](../execution/01_queue_and_worker_architectures.md)
+- [Task execution models](../execution/02_task_execution_models.md)

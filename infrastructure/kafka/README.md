@@ -44,7 +44,7 @@ kafka/
 
 ## Reading Order
 
-### First Kafka-backed service
+### Explore Kafka with a runnable record
 
 **For**: backend engineers who have not operated Kafka before.
 
@@ -55,7 +55,12 @@ partition, offset, and retention independently of the consumer.
 2. **Understand:** [Logs, topics, partitions, and offsets](fundamentals/02_log_topics_partitions_and_offsets.md).
 3. **Understand:** [Keys and ordering](fundamentals/03_partitioning_keys_and_ordering.md), then [consumer groups](fundamentals/04_consumer_groups_offsets_and_rebalancing.md).
 4. **Build:** [Python producers and consumers](application_design/02_python_producers_and_consumers.md).
-5. **Design:** [Event contracts](application_design/01_event_contracts_and_schema_evolution.md) and [topics](application_design/04_topic_and_partition_design.md).
+5. **Revisit for service design:** [Event contracts](application_design/01_event_contracts_and_schema_evolution.md) and [topics](application_design/04_topic_and_partition_design.md).
+
+This is an exploration route: it gets a record moving before introducing contract governance. If
+you are building a service rather than exploring Kafka, follow the
+[contract-first application path](application_design/README.md) so validation exists before client
+code publishes the payload.
 
 **Stop here if** an internal event flow may tolerate occasional duplicate processing. Continue to
 [Reliability](reliability/README.md) when processing changes money, inventory, permissions, or
@@ -69,9 +74,10 @@ another external system.
 idempotency boundary.
 
 1. **Do:** [Trace delivery semantics](reliability/01_delivery_semantics.md).
-2. **Harden:** [Idempotence and transactions](reliability/02_idempotence_transactions_and_exactly_once.md).
-3. **Recover:** [Retries, dead letters, and replay](reliability/03_retries_dead_letters_and_replay.md).
-4. **Operate:** [Security](operations/01_security_and_multitenancy.md), [capacity](operations/02_capacity_planning_and_performance.md), and [observability](operations/03_observability_and_incident_response.md).
+2. **Build:** implement the transaction trace in [Idempotence and transactions](reliability/02_idempotence_transactions_and_exactly_once.md).
+3. **Test:** exercise crash windows with the [Kafka service test harness](reliability/05_testing_kafka_services.md).
+4. **Recover:** [Retries, dead letters, and replay](reliability/03_retries_dead_letters_and_replay.md).
+5. **Operate:** [Security](operations/01_security_and_multitenancy.md), [capacity](operations/02_capacity_planning_and_performance.md), and [observability](operations/03_observability_and_incident_response.md).
 
 **Stop here if** the service has bounded lag, idempotent effects, tested replay, and actionable
 alerts. Continue to deployment and disaster recovery when your team owns the cluster lifecycle.
@@ -97,4 +103,3 @@ contract. Kafka is valuable only when its retained, partitioned log is part of t
 - Comfort with processes, network failures, and database transactions.
 - [Background work](../../background_work/README.md) is useful when comparing events with durable jobs.
 - [Redis Streams](../redis/02_pubsub_and_streams.md) provides a smaller-system comparison.
-

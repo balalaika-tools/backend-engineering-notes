@@ -4,7 +4,7 @@
 
 > **Who this is for**: Python engineers evaluating Dramatiq for broker-backed task delivery and synchronous worker execution.
 
-Before reading this, understand **[queue and worker architectures](../../04_queue_and_worker_architectures.md)** and **[the reliability deep dives](../../reliability/README.md)**.
+Before reading this, understand **[queue and worker architectures](../../execution/01_queue_and_worker_architectures.md)** and **[the reliability deep dives](../../reliability/README.md)**.
 
 Dramatiq 2.2 is documented in the current [official user guide](https://dramatiq.io/guide.html).
 
@@ -603,7 +603,7 @@ async def fetch_report(url: str) -> dict:
 
 The middleware runs **one event-loop thread per worker process** and dispatches coroutine actors onto it.
 
-⚠️ **This does not increase concurrency.** Each worker thread submits its coroutine to the loop and then *blocks on the result*, so maximum in-flight work per process is still the worker-thread count — 8 by default — exactly as it is for synchronous actors. `async def` here buys you the ability to use async libraries inside an actor; it does not buy you the 1,000-concurrent-request profile of a native asyncio worker. If that profile is the requirement, a database- or queue-polling asyncio worker ([task execution models](../../05_task_execution_models.md#4-native-async-io-gives-high-concurrency-with-explicit-backpressure) §4) is the right shape, not Dramatiq.
+⚠️ **This does not increase concurrency.** Each worker thread submits its coroutine to the loop and then *blocks on the result*, so maximum in-flight work per process is still the worker-thread count — 8 by default — exactly as it is for synchronous actors. `async def` here buys you the ability to use async libraries inside an actor; it does not buy you the 1,000-concurrent-request profile of a native asyncio worker. If that profile is the requirement, a database- or queue-polling asyncio worker ([task execution models](../../execution/02_task_execution_models.md#4-native-async-io-gives-high-concurrency-with-explicit-backpressure) §4) is the right shape, not Dramatiq.
 
 Source: [reference docs](https://dramatiq.io/reference.html) and [`middleware/asyncio.py`](https://github.com/Bogdanp/dramatiq/blob/master/dramatiq/middleware/asyncio.py), checked 2026-08-03.
 
@@ -923,7 +923,7 @@ def on_user_signup(user_id: str):
         ).on_conflict_do_nothing()
 ```
 
-A separate publisher polls unpublished outbox rows, `.send()`s each one, and marks it published; each child actor is idempotent on `(user_id, step)`. Now a crash anywhere leaves a recoverable state: either the rows exist and will be published, or the transaction rolled back and the signup did not happen. See [queue and worker architectures §3](../../04_queue_and_worker_architectures.md) for the publisher, and [idempotency and external effects](../../reliability/03_idempotency_and_external_effects.md) for the per-child idempotency.
+A separate publisher polls unpublished outbox rows, `.send()`s each one, and marks it published; each child actor is idempotent on `(user_id, step)`. Now a crash anywhere leaves a recoverable state: either the rows exist and will be published, or the transaction rolled back and the signup did not happen. See [queue and worker architectures §3](../../execution/01_queue_and_worker_architectures.md) for the publisher, and [idempotency and external effects](../../reliability/03_idempotency_and_external_effects.md) for the per-child idempotency.
 
 **Use the best-effort version when** every child is genuinely losable — an analytics ping, a cache warm — and the cost of a missed one is zero. **Use the outbox version whenever a missing child is a support ticket.**
 
@@ -1087,7 +1087,7 @@ Minimum boundary for any deployment:
 - **Private networking.** The broker listens on a private subnet or a Unix socket, never a public interface. For Redis, keep `protected-mode yes` and bind explicitly.
 - **Authentication and TLS.** Redis: `requirepass` plus an ACL user, and `rediss://` for the connection URL. RabbitMQ: a per-service user with a password, over `amqps://`. Never ship the `guest:guest` URL from this note's examples — it exists to make the snippet runnable locally.
 - **Least privilege per service.** The web app needs *publish* on its queues; workers need *consume*. In Redis this is an ACL with a key-pattern restriction (`~dramatiq:*`); in RabbitMQ it is per-vhost read/write/configure permissions. A compromised web process should not be able to drain or dead-letter the queue.
-- **Minimize the payload.** Send IDs, not personal data or secrets — messages sit in the broker in plaintext, land in the `.XQ` hash for 7 days on failure, and get printed in tracebacks and DLQ inspection scripts like the one above. See [queue and worker architectures](../../04_queue_and_worker_architectures.md) for the ID-only convention.
+- **Minimize the payload.** Send IDs, not personal data or secrets — messages sit in the broker in plaintext, land in the `.XQ` hash for 7 days on failure, and get printed in tracebacks and DLQ inspection scripts like the one above. See [queue and worker architectures](../../execution/01_queue_and_worker_architectures.md) for the ID-only convention.
 
 **How you know it worked:** `redis-cli -u redis://<host>:6379 ping` from outside the private network must fail to connect (not return `NOAUTH`, which means the port is reachable), and an unauthenticated `LPUSH dramatiq:default '...'` must be rejected.
 

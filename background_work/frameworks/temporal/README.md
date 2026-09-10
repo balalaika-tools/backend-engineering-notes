@@ -16,11 +16,11 @@
 
 ## Reading Order
 
-1. Read [State-Machine Design](../../03_state_machine_design.md), then the overview.
+1. Read [State-Machine Design](../../workflows/01_state_machine_design.md), then the overview.
 
 ---
 
 ## Prerequisites
 
-- [State-Machine Design](../../03_state_machine_design.md)
-- [Task execution models](../../05_task_execution_models.md)
+- [State-Machine Design](../../workflows/01_state_machine_design.md)
+- [Task execution models](../../execution/02_task_execution_models.md)

@@ -2,7 +2,7 @@
 
 > **Who this is for**: Engineers implementing periodic work without confusing calendar rules, delivery, and execution.
 
-Before reading this, choose an execution pool in **[Task Execution Models](05_task_execution_models.md)** and a delivery mechanism in **[Queue and Worker Architectures](04_queue_and_worker_architectures.md)**.
+Before reading this, choose an execution pool in **[Task Execution Models](02_task_execution_models.md)** and a delivery mechanism in **[Queue and Worker Architectures](01_queue_and_worker_architectures.md)**.
 
 ---
 
@@ -208,4 +208,4 @@ Do not use a global scheduler for a timer that is part of one workflow's durable
 
 ---
 
-**Next**: [Reliability Deep Dives](reliability/README.md)
+**Next**: [Reliability Deep Dives](../reliability/README.md)

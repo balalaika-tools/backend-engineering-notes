@@ -199,8 +199,6 @@ cp .env.example .env
 pydantic-settings automatically converts environment variable strings to Python types:
 
 ```python
-from typing import Optional
-
 from pydantic_settings import BaseSettings
 
 
@@ -209,14 +207,12 @@ class Settings(BaseSettings):
     port: int = 8000             # "8000" → 8000
     rate_limit: float = 1.5      # "1.5" → 1.5
     allowed_hosts: list[str] = ["localhost"]  # '["localhost","example.com"]' → list
-    workers: Optional[int] = None   # unset → None
+    workers: int | None = None   # unset → None
 ```
 
 ### Required vs Optional
 
 ```python
-from typing import Optional
-
 from pydantic_settings import BaseSettings
 
 
@@ -230,13 +226,13 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # Optional, can be None
-    sentry_dsn: Optional[str] = None
-    redis_url: Optional[str] = None
+    sentry_dsn: str | None = None
+    redis_url: str | None = None
 ```
 
-> This corpus prefers `Optional[X]` over `X | None`. They are equivalent in
-> Python 3.10+, but `Optional` reads more clearly. See
-> [typing.md](typing.md#2-optional--user-preference-for-this-corpus).
+> `Optional[X]` and `X | None` are equivalent in Python 3.10+. This Python 3.11+
+> corpus prefers the modern `X | None` spelling for new code; see
+> [typing.md](typing.md#2-nullable-values--prefer-x--none).
 
 ### Custom Validators
 
@@ -606,8 +602,6 @@ serialized. Pydantic's `SecretStr` masks its normal string representation and
 requires an explicit unwrap at the point of use:
 
 ```python
-from typing import Optional
-
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings
 
@@ -615,7 +609,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_url: str
     secret_key: SecretStr
-    stripe_key: Optional[SecretStr] = None
+    stripe_key: SecretStr | None = None
 
 
 settings = Settings()
@@ -675,8 +669,6 @@ myapp/
 ### `config.py`
 
 ```python
-from typing import Optional
-
 from pydantic import BaseModel, ConfigDict, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -726,8 +718,8 @@ class Settings(BaseSettings):
     auth: AuthSettings
 
     # External services
-    sentry_dsn: Optional[str] = None
-    stripe_key: Optional[SecretStr] = None
+    sentry_dsn: str | None = None
+    stripe_key: SecretStr | None = None
 
     # Feature flags
     enable_signups: bool = True
@@ -862,7 +854,8 @@ masks the password in its normal string representation. Pass the `URL` object
 directly to SQLAlchemy. If a driver requires a string, unwrap/render it only at
 that integration boundary. Do not log the rendered credential URL.
 
-Choose one canonical input shape: either a complete deployment-provided DSN or
+Choose one canonical input shape: either a complete deployment-provided **data
+source name (DSN)** connection string or
 separate components. Defining both creates precedence and consistency problems.
 
 ### Feature Flags

@@ -247,45 +247,59 @@ def test_upload(s3_bucket):
 
 ---
 
-## Contract Testing Against Real Upstreams
+## Live Provider Compatibility Checks
 
 Mocks guarantee that your code does the right thing **given your understanding of the upstream**. They catch nothing when the upstream changes their API.
 
-For critical dependencies, run a **nightly** integration test against the upstream's sandbox environment. Keep these separate from the unit-test suite:
+For critical dependencies, run a bounded **live** test against the upstream's sandbox environment.
+It can verify a compatibility contract, but classify it as live because it uses credentials,
+network, shared state, and the provider's current behavior. Keep it separate from the hermetic
+suite:
 
 ```python
-# tests/contract/test_stripe_contract.py
+# tests/live/test_stripe_compatibility.py
+import os
+
 import pytest
 
-pytestmark = pytest.mark.contract  # skip in normal runs
+pytestmark = pytest.mark.live
 
 
-@pytest.mark.skipif(
-    not os.getenv("STRIPE_SANDBOX_KEY"),
-    reason="requires STRIPE_SANDBOX_KEY for contract tests",
-)
-async def test_charge_returns_expected_shape():
-    result = await stripe.charge(...)
+@pytest.fixture
+def stripe_sandbox_key():
+    key = os.getenv("STRIPE_SANDBOX_KEY")
+    if not key:
+        pytest.fail("live profile selected without STRIPE_SANDBOX_KEY")
+    return key
+
+
+async def test_charge_returns_fields_consumed_by_adapter(stripe_sandbox_key):
+    result = await stripe.charge_test_payment(stripe_sandbox_key, amount_cents=100)
     # assert the shape you depend on
     assert "id" in result
     assert "status" in result
 ```
 
-Run these in a separate CI job on a schedule, not on every PR. Their job is to catch "upstream changed their API" — a class of bug that mocks cannot.
+Run `pytest -m live tests/live` in a separate, time- and spend-bounded CI job on a schedule. The job
+must fail if its secret or sandbox is unavailable; silently skipping every selected test produces a
+green check with no evidence. Redact recordings and failure artifacts.
 
 ---
 
 ## Layered Tests for the Same Endpoint
 
-A useful pattern — test the same endpoint at three levels:
+A useful pattern is to prove the same feature at complementary boundaries without repeating its
+whole branch matrix:
 
 | Level | Client uses | Catches |
 |-------|-------------|---------|
-| Unit | Fake service | Logic bugs |
-| Integration | Real service + `respx`-mocked upstream | Wiring, DI, auth |
-| Contract | Real service + real upstream sandbox | Upstream API drift |
+| Application unit | Action + injected provider fake | Business decisions and error classification |
+| API slice | In-process ASGI app + real action + `respx` transport | HTTP mapping, DI, auth, request construction |
+| Local contract | Serializer/schema fixture | Fields and message shapes consumers rely on |
+| Live compatibility | Real adapter + real upstream sandbox | Current upstream API drift |
 
-Most tests live at levels 1 and 2. Level 3 runs nightly.
+Keep the exhaustive matrix at the cheapest owner. The broader rows stay only when they prove
+different wiring, serialization, or current-provider behavior.
 
 ---
 

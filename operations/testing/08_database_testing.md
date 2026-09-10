@@ -22,7 +22,7 @@ connection used by the application.
 | Strategy | Speed | Isolation | Complexity | Best For |
 |----------|-------|-----------|------------|----------|
 | Drop/create per module | Slow | Full | Low | Small test suites |
-| Transaction rollback | Fast | Full | Medium | Most projects |
+| Transaction rollback | Fast | Same-connection only | Medium | Request/repository tests on one connection |
 | In-memory SQLite | Fastest | Full | Low | Unit-level DB tests |
 | testcontainers (real Postgres) | Medium | Full | Medium | Production parity, CI |
 | pytest-postgresql | Fast | Full | Low | Local dev with host Postgres |
@@ -107,7 +107,7 @@ Why this is better:
 - Each test starts with a clean state.
 - No `DELETE` queries needed.
 - Much faster than `drop_all` / `create_all`.
-- Tests are fully isolated, even across files.
+- Tests are isolated when every database operation uses that same connection.
 
 ### The `commit()` Problem
 
@@ -127,7 +127,14 @@ def db_session(setup_database):
     connection.close()
 ```
 
-`join_transaction_mode="create_savepoint"` was added in SQLAlchemy 2.0 and replaces the older `begin_nested` / event-listener pattern for joining a `Session` into an external transaction. If you are on SQLAlchemy < 2.0, upgrade — the ergonomics here alone justify it.
+`join_transaction_mode="create_savepoint"` is the SQLAlchemy 2.x external-transaction recipe. For
+an older supported stack, use the recipe documented for its locked version rather than copying
+this fixture or upgrading production dependencies as an incidental test change.
+
+This pattern does **not** prove commit visibility, locking, or isolation across another connection,
+process, or worker. Fixture rows remain uncommitted to outsiders, while writes committed through a
+different connection escape the outer rollback. Use committed setup plus a unique database,
+schema, tenant, or explicit reset for concurrency, outbox, and worker tests.
 
 ---
 
@@ -280,11 +287,18 @@ Unique defaults per call means you can create ten users in one test without emai
 
 For anything that runs SQL you care about, prefer real Postgres. The infrastructure cost is low; the bugs caught are high-value.
 
+When an assertion follows a commit, re-read the result through a fresh session if SQLAlchemy's
+identity map could return the object already held in memory. That distinguishes “the Python object
+has this value” from “another transaction can observe the persisted value.”
+
 ---
 
 ## Migration Testing
 
-A frequently-overlooked layer. Alembic migrations break silently — tests pass because they use `Base.metadata.create_all()`, and then the first production deploy hits a column mismatch.
+A frequently-overlooked layer. Alembic migrations break silently — tests pass because they use
+`Base.metadata.create_all()`, and then the first production deploy hits a column mismatch. Apply the
+real migration chain to an empty disposable database; `create_all()` is useful fixture setup but is
+not migration evidence.
 
 The check that catches this:
 

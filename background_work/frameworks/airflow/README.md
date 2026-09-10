@@ -16,12 +16,12 @@
 
 ## Reading Order
 
-1. Read [when a task becomes a workflow](../../02_when_a_task_becomes_a_workflow.md), then the Airflow overview.
+1. Read [when a task becomes a workflow](../../foundations/02_task_or_workflow.md), then the Airflow overview.
 
 ---
 
 ## Prerequisites
 
-- [When a task becomes a workflow](../../02_when_a_task_becomes_a_workflow.md)
-- [Task execution models](../../05_task_execution_models.md)
+- [When a task becomes a workflow](../../foundations/02_task_or_workflow.md)
+- [Task execution models](../../execution/02_task_execution_models.md)
 - Familiarity with scheduled batch or data pipelines

@@ -274,7 +274,7 @@ Pytest has no special support for classes — it's just a grouping convention. D
 
 ---
 
-## Realistic End-to-End Example
+## A realistic API test module is not automatically end to end
 
 A full test file combining the patterns:
 
@@ -349,6 +349,12 @@ class TestListUsers:
         page2 = await client.get("/users?page=2&limit=10")
         assert len(page2.json()) == 5
 ```
+
+Classify this module from its fixtures. It is an **API slice** when `client` drives the ASGI app
+in-process and `make_user` writes to a fake repository. It becomes an **API integration** when both
+use a disposable production-dialect database. It is not end to end unless the test crosses the
+deployed process boundary and real internal services; a filename under `tests/integration/` cannot
+change what the test proves.
 
 ---
 

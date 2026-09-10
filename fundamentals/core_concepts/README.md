@@ -12,7 +12,9 @@
 
 | File | Topic | Description |
 |------|-------|-------------|
-| [typing.md](typing.md) | Typing | Runtime vs static contracts, `Optional`, `TypedDict`, generics, protocols, `ParamSpec`, `Annotated` |
+| [typing_workflow.md](typing_workflow.md) | Type-checking Workflow | Run mypy, own repository configuration, interpret diagnostics, enforce the same scope in CI |
+| [typing.md](typing.md) | Typing | Runtime vs static contracts, `TypedDict`, generics, protocols, abstract inputs, `NewType`, overloads, narrowing |
+| [iterators_and_generators.md](iterators_and_generators.md) | Iterators & Generators | Iteration protocols, suspension, one-shot streams, cleanup, async generators |
 | [data_model_choices.md](data_model_choices.md) | Data Model Choices | Standard dataclasses vs Pydantic dataclasses vs `BaseModel` by runtime and boundary contract |
 | [context_managers.md](context_managers.md) | Context Managers | Resource lifetimes, protocol mechanics, partial setup, async managers, `ExitStack` |
 | [decorators.md](decorators.md) | Decorators | Rebinding mental model, closures, `wraps`, parameters, async wrappers, stacking |
@@ -26,16 +28,19 @@
 
 ## Reading Order
 
-**Working result by entry 2**: describe a function/data contract and own one resource lifetime with
-a context manager.
+**Working result by entry 2**: run a type checker against one contract, observe both its success and
+failure output, and explain why the hint itself does not enforce runtime values.
 
-1. **Do:** [Typing](typing.md) — express the contract vocabulary used by later examples.
-2. **Understand:** [Context Managers](context_managers.md) — trace acquisition, use, and cleanup, including partial setup failure.
-3. **Choose data ownership:** [Data Model Choices](data_model_choices.md), then extend the language model with [Decorators](decorators.md) and [Exceptions](exceptions.md).
-4. **Harden the process boundary:** [Logging](logging/README.md), [Structured Logging](structlog_guide.md), [Configuration](configuration.md), and [Signals](signals.md).
+1. **Do:** [Type-checking Workflow](typing_workflow.md) — run mypy and prove that the intended files are actually checked.
+2. **Understand:** [Typing](typing.md) — choose the smallest useful contract and keep runtime validation separate.
+3. **Trace lazy work:** [Iterators and Generators](iterators_and_generators.md) — follow one-shot iteration, suspension, early close, and async cleanup.
+4. **Own a lifetime:** [Context Managers](context_managers.md) — trace acquisition, use, and cleanup, including partial setup failure.
+5. **Choose data ownership:** [Data Model Choices](data_model_choices.md), then extend the language model with [Decorators](decorators.md) and [Exceptions](exceptions.md).
+6. **Harden the process boundary:** [Logging](logging/README.md), [Structured Logging](structlog_guide.md), [Configuration](configuration.md), and [Signals](signals.md).
 
-**Stop here if** you only needed the Python contract and lifetime model used by another path.
-Continue into step 4 when you own application startup, observability, configuration, or shutdown.
+**Stop after step 2** if you only needed enforceable Python contracts. Continue through step 4 when
+you consume lazy streams or own setup/teardown. Continue into step 6 when you own application
+startup, observability, configuration, or shutdown.
 
 For request-scoped state and async-safe context propagation, read [concurrency/async/03_contextvars.md](../concurrency/async/03_contextvars.md).
 

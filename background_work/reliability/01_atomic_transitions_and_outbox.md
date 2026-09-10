@@ -2,7 +2,7 @@
 
 > **Who this is for**: Engineers connecting a domain database to a job table or external broker without losing or inventing work.
 
-Before reading this, follow the row-by-row lifecycle in **[End-to-End Database-Backed Workflow](../state_machines/04_end_to_end_workflow.md)**.
+Before reading this, understand the conditional transaction in **[Relational Current-State Persistence](../workflows/state_machines/persistence/01_relational_current_state.md)**. The [database-backed reference workflow](../workflows/reference_workflows/01_database_backed_editorial_workflow.md) assembles this mechanism with the rest of the recovery chain after the focused reliability notes.
 
 ---
 

@@ -94,7 +94,7 @@ provider policy.
 
 ---
 
-## Guide Structure
+## Contents
 
 | Part | Topic | Description |
 |------|-------|-------------|
@@ -213,7 +213,7 @@ async def call_api(payload: dict):
 
 ---
 
-## Reading Path
+## Learning paths
 
 ### For Beginners
 

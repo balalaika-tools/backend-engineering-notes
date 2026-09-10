@@ -2,7 +2,7 @@
 
 > **Who this is for**: Python engineers building graph-shaped LLM/agent workflows whose state, interruptions, and resume points must survive process loss.
 
-Before reading this, compare checkpointed graphs with service workflows in **[State-Machine Design](../../03_state_machine_design.md)**.
+Before reading this, compare checkpointed graphs with service workflows in **[State-Machine Design](../../workflows/01_state_machine_design.md)**.
 
 ---
 
@@ -170,4 +170,4 @@ Do not use a checkpointer as the only record of a payment, email, or domain enti
 
 ---
 
-**Next**: [Part 9: Decision Guide](../../09_decision_guide.md)
+**Next**: [Part 9: Decision Guide](../00_system_selection.md)

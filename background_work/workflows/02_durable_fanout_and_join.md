@@ -2,7 +2,7 @@
 
 > **Who this is for**: Engineers splitting one workflow step into parallel child jobs that must join exactly once.
 
-Before reading this, understand atomic job creation in **[Atomic Transitions and Outbox](reliability/01_atomic_transitions_and_outbox.md)** and bounded execution in **[Task Execution Models](05_task_execution_models.md)**.
+Before reading this, understand atomic job creation in **[Atomic Transitions and Outbox](../reliability/01_atomic_transitions_and_outbox.md)** and bounded execution in **[Task Execution Models](../execution/02_task_execution_models.md)**.
 
 ---
 
@@ -271,4 +271,4 @@ Do not use durable fan-out for a small in-process calculation whose entire retry
 
 ---
 
-**Next**: [Production Operations](operations/README.md)
+**Next**: [Production Operations](../operations/README.md)

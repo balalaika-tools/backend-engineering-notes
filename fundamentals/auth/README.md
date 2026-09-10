@@ -9,27 +9,20 @@
 
 ---
 
-## Structure
+## Contents
 
-```
-auth/
-├── jwt.md         ← JWT theory: structure, JWKS, validation, Python code
-├── oauth2.md      ← OAuth 2.0: grant types, scopes, resource servers
-└── cognito/       ← AWS Cognito — practical application of the above
-    ├── cognito.md            ← Mental model: User Pools vs Identity Pools
-    ├── user-pool.md          ← Setup, app clients, auth flows, groups, boto3
-    ├── tokens.md             ← Cognito token claims, validation, revocation
-    └── oauth-jwt-guide.md    ← OAuth in Cognito: M2M, user auth, FastAPI, testing
-```
+| Guide | Layer | Reader outcome |
+|---|---|---|
+| [JWT](jwt.md) | Foundation | Validate a signed token against an explicit issuer, audience, algorithm, and freshness contract |
+| [OAuth 2.0](oauth2.md) | Foundation | Choose an authorization flow and define scopes around the protected resource |
+| [Cognito mental model](cognito/cognito.md) | AWS Cognito | Distinguish User Pools, Identity Pools, app clients, groups, and resource servers |
+| [User Pool configuration](cognito/user-pool.md) | AWS Cognito | Configure clients, authentication flows, users, groups, and Lambda triggers |
+| [Cognito tokens](cognito/tokens.md) | AWS Cognito | Select and validate the correct access or identity token and handle revocation limits |
+| [OAuth and JWT in practice](cognito/oauth-jwt-guide.md) | AWS Cognito | Implement machine and user authorization flows through a FastAPI boundary |
 
-**Read the base layer first, then the framework layer.**
+---
 
-| Base (framework-agnostic) | Cognito-specific |
-|---------------------------|------------------|
-| [jwt.md](./jwt.md) | [cognito/tokens.md](./cognito/tokens.md) |
-| [oauth2.md](./oauth2.md) | [cognito/oauth-jwt-guide.md](./cognito/oauth-jwt-guide.md) |
-
-### First-time route
+## Learning path
 
 **Working result by entry 2**: validate a token against an issuer contract, then explain how OAuth
 delegates the authority represented by that token.

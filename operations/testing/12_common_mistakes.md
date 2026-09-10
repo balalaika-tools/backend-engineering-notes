@@ -251,6 +251,23 @@ Acceptable exceptions:
 
 Never a plain `@pytest.mark.skip` without a path to re-enabling.
 
+Use `xfail` only for a precise known defect or dependency limitation. Narrow the condition, name the
+expected failure type and tracked issue, and make unexpected passes fail review with `strict=True`:
+
+```python
+@pytest.mark.xfail(
+    condition=postgres_version == (16, 2),
+    raises=SerializationFailure,
+    reason="DB-1842: fixed upstream; remove after image bump",
+    strict=True,
+)
+def test_concurrent_claim_has_one_winner():
+    ...
+```
+
+If an integration job intentionally selects this profile, missing Docker, credentials, or a broker
+is not an acceptable skip: fail the job so it cannot report success after collecting zero evidence.
+
 ---
 
 ## Mistake 12: Database Tests Without Rollback

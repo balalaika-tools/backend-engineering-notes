@@ -2,7 +2,7 @@
 
 > **Who this is for**: FastAPI engineers who have already chosen Dramatiq and need durable submission, status, testing, and deployment boundaries.
 
-Before reading this, understand **[Dramatiq’s runtime](overview.md)** and the **[database/broker outbox boundary](../../04_queue_and_worker_architectures.md#3-a-broker-needs-an-outbox-at-the-database-boundary)**.
+Before reading this, understand **[Dramatiq’s runtime](overview.md)** and the **[database/broker outbox boundary](../../execution/01_queue_and_worker_architectures.md#3-a-broker-needs-an-outbox-at-the-database-boundary)**.
 
 FastAPI and Dramatiq share application code, but run in separate processes. FastAPI validates a command and records intent; Dramatiq delivers IDs to a worker; the database remains authoritative for user-visible status.
 

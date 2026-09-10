@@ -29,6 +29,28 @@ one Kafka transaction. `read_committed` consumers hide aborted transactional rec
 is a card API call, Kafka cannot roll it back; use the provider's idempotency key or a durable local
 state transition.
 
+For input `orders[2]@8`, the processor API sequence and visible state are:
+
+```text
+producer.begin_transaction()
+producer.produce("billing.commands", key="ord-42", value=charge)
+producer.send_offsets_to_transaction({orders[2]: 9}, group_metadata)
+producer.commit_transaction()
+```
+
+The offset value is `9`, the next record to read. If the process crashes after `produce` but before
+commit, the broker aborts or times out the open transaction: a `read_committed` consumer sees no
+charge, and the input group still resumes at offset 8. After restart, one committed charge and
+offset 9 become visible together. If commit succeeds before the crash, restart begins at 9 and does
+not repeat offset 8.
+
+```text
+crash point                         read_committed output   group resumes
+after produce, before commit        none                    orders[2]@8
+after successful commit             one charge              orders[2]@9
+explicit abort_transaction()        none                    orders[2]@8
+```
+
 **Success signal:** kill the processor before commit and observe no partial output with
 `read_committed`; restart and obtain one committed result. Counting records under the default
 isolation silently includes aborted work.

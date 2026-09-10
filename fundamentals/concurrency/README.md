@@ -23,7 +23,7 @@ The goal is not to memorize every API. The goal is to design systems that remain
 
 ---
 
-## Reading order
+## Contents
 
 | Order | Guide | Why it exists |
 |------:|-------|---------------|
@@ -33,6 +33,18 @@ The goal is not to memorize every API. The goal is to design systems that remain
 | 4 | [threads/](threads/README.md) | `ThreadPoolExecutor`, thread primitives, synchronization patterns, blocking I/O, shared memory, and deadlocks. |
 | 5 | [processes/](processes/README.md) | `ProcessPoolExecutor`, pickling, process start methods, CPU parallelism, and process-safe sharing. |
 | 6 | [02_alternative_runtimes.md](02_alternative_runtimes.md) | After a default branch works, evaluate Python 3.14 subinterpreters and optional free-threaded CPython. |
+
+---
+
+## Learning path
+
+**Working result by entry 2**: choose the execution model for a workload and identify which state
+can be shared safely across that model's boundary.
+
+1. **Decide:** use the [decision guide](00_decision_guide.md) to choose async, threads, processes, a job queue, or an advanced runtime.
+2. **Understand:** use [state and safety](01_state_and_safety.md) to trace what is shared and what must be synchronized or serialized.
+3. **Build:** follow the selected [async](async/README.md), [thread](threads/README.md), or [process](processes/README.md) branch to its first runnable result.
+4. **Specialize only when measured:** evaluate [alternative runtimes](02_alternative_runtimes.md) after a default branch has a demonstrated CPU or isolation limit.
 
 After the decision guide, go directly to the async, thread, or process branch it selects. Stop when
 that branch's first example produces its named result. Continue to state safety only when work

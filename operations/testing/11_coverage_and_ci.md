@@ -95,17 +95,19 @@ Don't use pragmas to hit a percentage target. They're for genuinely un-testable 
 
 ## Setting a Target
 
-Pick a threshold that reflects what actually matters:
-
-| Tier | Threshold | What it implies |
-|------|-----------|-----------------|
-| Experimental / prototype | none | Just run the tests |
-| Typical service | 75–85% | Business logic covered; UI / adapters partial |
-| Critical service (payments, auth) | 90%+ | Every branch you can exercise |
+There is no universal “good” threshold. A repository may use a coverage floor to catch a test job
+that stopped collecting files or to prevent large unexamined drops, but `80%` does not imply that
+the important behaviors are protected. Start from the current measured baseline, inspect uncovered
+high-risk branches, and ratchet only when the added tests have meaningful oracles.
 
 Do not hide low-value production glue with `omit` merely to improve the percentage. Reserve
 `omit` for generated or intentionally non-executable files. Either accept the lower threshold or
 cover the glue through a higher-level test whose assertions protect the behavior that matters.
+
+For compact high-risk deterministic logic—authorization decisions, money calculations, retry
+classification—**mutation testing** can reveal a test that executes a branch without detecting a
+changed outcome. Use it as a diagnostic when the project already supports it; inspect surviving
+mutations semantically rather than replacing coverage-score chasing with mutation-score chasing.
 
 ---
 
@@ -166,9 +168,12 @@ jobs:
       - run: pip install -e ".[dev]"
 
       - name: Run tests
+        run: pytest -n auto --cov=app --cov-report=xml --cov-fail-under=80
+
+      - name: Run disposable Postgres integration profile
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
-        run: pytest -n auto --cov=app --cov-report=xml --cov-fail-under=80
+        run: pytest -m integration
 
       - uses: codecov/codecov-action@v5
         with:
@@ -178,7 +183,8 @@ jobs:
 
 Key choices:
 
-- **Postgres as a service** — faster than `testcontainers` in CI, same SQL dialect.
+- **Two explicit selections** — the hermetic suite and disposable-infrastructure suite report which boundary failed.
+- **Postgres as a service** — gives the integration profile the production SQL dialect.
 - **`pip cache` via `setup-python`** — avoids re-downloading on every run.
 - **`-n auto`** — uses all the runner's CPUs.
 - **`--cov-fail-under`** — CI goes red below the threshold.
@@ -228,6 +234,11 @@ Flakes almost always trace to one of:
 - Time-sensitive assertions (`asyncio.sleep(0.1); assert finished` under CI load).
 - Nondeterministic iteration order (dicts/sets where order matters).
 - Leaked dependency overrides — see [05](05_dependency_overrides.md).
+
+Use repeats and randomized order to reproduce the failure, not to make a red test eventually pass.
+A rerun plugin can gather evidence but is not a repair. Replace timer-based coordination with an
+event, barrier, task group, database lock, or a bounded poll for the semantic condition; join or
+cancel every spawned task during teardown.
 
 ---
 

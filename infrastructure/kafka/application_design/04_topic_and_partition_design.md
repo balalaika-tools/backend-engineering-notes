@@ -15,7 +15,9 @@ actually differ.
 
 Events in one topic share major policy surfaces: authorization, retention/compaction, partition
 count, quotas, and consumer discovery. Separate payments from public catalog events when access
-control differs; do not create one topic per event type by reflex.
+control differs; do not create one topic per event type by reflex. The operational owner for
+creation, effective overrides, quotas, and rollback is
+[Configuration and Topic Administration](../operations/05_configuration_and_topic_administration.md).
 
 ---
 
@@ -59,4 +61,4 @@ retention. Separate topics and integrate deliberately.
 
 ---
 
-**Next**: [Reliability](../reliability/README.md)
+**Next**: [Schema Registry and Serialization](05_schema_registry_and_serialization.md)

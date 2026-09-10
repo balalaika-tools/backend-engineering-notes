@@ -2,7 +2,7 @@
 
 > **Who this is for**: Backend engineers deciding whether a durable workflow engine should replace custom timer, signal, retry, and recovery code.
 
-Before reading this, compare persistence and execution axes in **[State-Machine Design](../../03_state_machine_design.md)**.
+Before reading this, compare persistence and execution axes in **[State-Machine Design](../../workflows/01_state_machine_design.md)**.
 
 ---
 

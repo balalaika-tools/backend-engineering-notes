@@ -2,7 +2,7 @@
 
 > **Who this is for**: Engineers turning workload, durability, workflow, and operational constraints into a concrete background-work design.
 
-Before choosing a tool, read **[the responsibility model](01_overview.md)**. First-time readers can use §§1–5 after building the **[minimal durable task](03_minimal_durable_task.md)**; read the **[reliability](reliability/README.md)** and **[production operations](operations/README.md)** sections before treating the choice as production-ready.
+Before choosing a tool, read **[the responsibility model](../foundations/01_overview.md)**. First-time readers can use §§1–5 after building the **[minimal durable task](../foundations/03_minimal_durable_task.md)**; read the **[reliability](../reliability/README.md)** and **[production operations](../operations/README.md)** sections before treating the choice as production-ready.
 
 ---
 
@@ -48,11 +48,11 @@ Only after these questions should you compare frameworks and managed services.
 
 **2. Does progress contain business decisions across steps or time?** No. The steps — query the warehouse, render the PDF, upload it, send the email — are a fixed pipeline with no approval, no branching, and no waiting on anything external. A failed run can be discarded and re-run from the beginning. → *task queue/job table + worker*, and **question 3 does not apply**.
 
-The tempting mistake here is to reach for workflow state because the pipeline has four steps. Four steps is not four business decisions. What the workload does need is an idempotency key per tenant per date (`report:{tenant_id}:2026-08-03`), so a retry after the email step does not send a second copy — that is [business-effect idempotency](reliability/03_idempotency_and_external_effects.md), not a state machine.
+The tempting mistake here is to reach for workflow state because the pipeline has four steps. Four steps is not four business decisions. What the workload does need is an idempotency key per tenant per date (`report:{tenant_id}:2026-08-03`), so a retry after the email step does not send a second copy — that is [business-effect idempotency](../reliability/03_idempotency_and_external_effects.md), not a state machine.
 
 **4. What does execution wait for?** Mostly CPU: the warehouse query is a few seconds of I/O, the PDF render is tens of seconds of pure Python. → *processes*.
 
-**The answer**: §2's **"Simple CPU-heavy task"** row — job record as state owner, database job table for delivery, process workers for execution — with §5's **"Pure Python CPU"** row for sizing: processes near the container's CPU allocation, scaled until CPU saturates or memory does. A scheduler creates 400 idempotent job rows at 03:00 using the [durable firing contract](06_scheduling_and_periodic_work.md) and does nothing else; it never runs the reports itself.
+**The answer**: §2's **"Simple CPU-heavy task"** row — job record as state owner, database job table for delivery, process workers for execution — with §5's **"Pure Python CPU"** row for sizing: processes near the container's CPU allocation, scaled until CPU saturates or memory does. A scheduler creates 400 idempotent job rows at 03:00 using the [durable firing contract](../execution/03_scheduling_and_periodic_work.md) and does nothing else; it never runs the reports itself.
 
 Two rows deliberately rejected: **Airflow**, because there is no dependency graph between datasets and nobody has asked for backfills — the scheduler here only needs to create work, and Airflow's cost is a platform to operate. **A durable workflow engine**, because nothing in the workload waits on a timer, a signal, or a human. If next quarter adds "hold the report for finance approval before sending," question 2 flips to *yes* and question 3 becomes live — and that is the point at which the answer changes, not before.
 
@@ -113,7 +113,7 @@ Choose persistent workflow state when the system must recover an allowed next ac
 
 Choose a durable workflow engine when implementing timers, signals, replay, compensation, and workflow-version evolution would become a product-sized runtime. **AWS Step Functions Standard** fits AWS-native declarative orchestration and service integrations; **Temporal** fits code-first durable service workflows and activity workers. Choose a checkpointed graph when LLM/agent state and human interrupts are central, while retaining idempotency around external side effects.
 
-Compare the axes before choosing either in [State-Machine Design](03_state_machine_design.md), then use [Workflow Orchestrator Selection](frameworks/00_workflow_orchestrator_selection.md) to compare custom coordination, Step Functions, Temporal, Airflow, and LangGraph. The [database-backed](state_machines/02_database_backed_state_machine.md) and [event-sourced](state_machines/03_event_sourced_state_machine.md) deep dives cover application-owned alternatives.
+Compare the axes before choosing either in [State-Machine Design](../workflows/01_state_machine_design.md), then use [Workflow Orchestrator Selection](01_workflow_orchestrator_selection.md) to compare custom coordination, Step Functions, Temporal, Airflow, and LangGraph. The [relational current-state](../workflows/state_machines/persistence/01_relational_current_state.md) and [event-sourced](../workflows/state_machines/persistence/02_event_sourced_state.md) deep dives cover application-owned alternatives.
 
 Do not let `AsyncResult`, queue visibility, or scheduler job state become authoritative business state. Their retention and failure semantics serve execution, not the domain.
 
@@ -131,7 +131,7 @@ Do not let `AsyncResult`, queue visibility, or scheduler job state become author
 
 Measure queue age, throughput, failure rate, memory high-water mark, pool wait, provider latency, and event-loop lag. Worker count alone is not a success metric.
 
-Turn those measurements into a bounded fleet plan in [Capacity Planning and Autoscaling](operations/03_capacity_planning_and_autoscaling.md). A replica target is incomplete until maximum replicas multiplied by per-pod pools and concurrency still fits database, provider, memory, and cost ceilings.
+Turn those measurements into a bounded fleet plan in [Capacity Planning and Autoscaling](../operations/03_capacity_planning_and_autoscaling.md). A replica target is incomplete until maximum replicas multiplied by per-pod pools and concurrency still fits database, provider, memory, and cost ceilings.
 
 ---
 
@@ -153,7 +153,7 @@ Start with **APScheduler**, **Celery/Dramatiq**, **database or managed-queue wor
 
 The important entry points are **APScheduler for timing**, **Celery or Dramatiq for Python task workers**, **Airflow for data pipelines**, **Step Functions Standard or Temporal for long-lived service workflows**, and **LangGraph for checkpointed agent state**.
 
-See [Framework Notes](frameworks/README.md) for implementation details.
+See [Framework Notes](README.md) for implementation details.
 
 ---
 
@@ -174,7 +174,7 @@ Score each candidate on the questions below. **The first five change the decisio
 - What data and messages must be deleted for privacy or cost control?
 - Which component is on call, and what is the manual recovery procedure?
 
-Use [Security and Authorization](operations/01_security_and_authorization.md) to review trigger and operator boundaries. Use [Multitenancy, Admission, and Fairness](operations/02_multitenancy_admission_and_fairness.md) to distinguish request rate, durable backlog, in-flight work, and cost budgets.
+Use [Security and Authorization](../operations/01_security_and_authorization.md) to review trigger and operator boundaries. Use [Multitenancy, Admission, and Fairness](../operations/02_multitenancy_admission_and_fairness.md) to distinguish request rate, durable backlog, in-flight work, and cost budgets.
 
 ⚠️ Avoid a choice whose happy path is easy but whose redrive procedure cannot explain why repeating a side effect is safe.
 
@@ -184,7 +184,7 @@ Use [Security and Authorization](operations/01_security_and_authorization.md) to
 
 ## 8. Validate the choice with failure tests
 
-Before production, implement the complete [failure-injection matrix](08_failure_injection_and_testing.md) and demonstrate:
+Before production, implement the complete [failure-injection matrix](../reliability/06_failure_injection_and_testing.md) and demonstrate:
 
 The first seven checks are the **default recovery contract**. The final two become required when external principals or multiple tenants share the system.
 
@@ -202,4 +202,4 @@ The design works when these tests leave an explainable state and an operator can
 
 ---
 
-**Next**: [Framework Notes](frameworks/README.md)
+**Next**: [Framework Notes](README.md)

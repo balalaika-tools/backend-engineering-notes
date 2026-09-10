@@ -17,7 +17,7 @@ This guide explains HTTPX internals — **connection pooling**, **timeouts**, **
 
 ---
 
-## Guide Structure
+## Contents
 
 **Default one-note route:** read [01_mental_model.md](01_mental_model.md), make one request, and
 print `response.http_version`. Stop there if you only need to understand the client → pool →

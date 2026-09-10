@@ -2,8 +2,7 @@
 
 Every content directory gets one. Use `index.md` in MkDocs collections and preserve `README.md` in
 existing Markdown-only collections. Section indexes are **intentionally minimal** — just enough to
-orient the reader within that section. Don't mirror the site index's ASCII trees or decorative
-category dividers.
+orient the reader within that section. Don't repeat the landing page's area overview.
 
 ---
 
@@ -27,7 +26,7 @@ category dividers.
 
 ---
 
-## Reading Order
+## Learning path
 
 **Working result by entry 2**: {the smallest runnable result or concrete worked outcome}.
 

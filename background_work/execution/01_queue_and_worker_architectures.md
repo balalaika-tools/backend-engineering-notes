@@ -2,7 +2,7 @@
 
 > **Who this is for**: Engineers choosing how pending work reaches workers after the authoritative state has been written.
 
-Before reading this, understand **[workflow, task, and delivery state](01_overview.md#3-keep-three-state-domains-separate)**.
+Before reading this, understand **[workflow, task, and delivery state](../foundations/01_overview.md#3-keep-three-state-domains-separate)**.
 
 ---
 
@@ -82,7 +82,7 @@ loop forever:
 
 `SKIP LOCKED` only holds its row lock for the claim transaction itself — `BEGIN`, select-and-update, `COMMIT`, typically milliseconds — not for the job's full execution time. Ownership across a long-running task is enforced by the lease and attempt token, not by holding a database lock open for tens of seconds.
 
-The comparison note does not own the claim protocol. Use [Leases, Heartbeats, and Fencing](reliability/02_leases_heartbeats_and_fencing.md) for the complete `SKIP LOCKED` claim, heartbeat, token replacement, terminal-write, and recovery SQL. A worker claims only its real free slots; a semaphore around already leased rows merely hides lease hoarding in local memory.
+The comparison note does not own the claim protocol. Use [Leases, Heartbeats, and Fencing](../reliability/02_leases_heartbeats_and_fencing.md) for the complete `SKIP LOCKED` claim, heartbeat, token replacement, terminal-write, and recovery SQL. A worker claims only its real free slots; a semaphore around already leased rows merely hides lease hoarding in local memory.
 
 **How you know it fits**: ready-row query latency and database load stay bounded, while oldest-ready age falls when worker capacity increases. Rising age with idle workers points to the polling index, readiness predicate, lease recovery, or admission policy—not automatically to insufficient CPU.
 
@@ -110,7 +110,7 @@ A broker is useful for routing and wake-up, but it cannot join the domain transa
 
 If the API dies after step 1, the publisher still finds `outbox-9`. If the publisher dies after the broker accepted step 2 but before marking it published, it sends the same message ID again. Duplicate publication is deliberate; the worker converges on the authoritative job claim.
 
-The full table schema, dependent state/job/outbox CTE, publish claim, confirmation mark, failure backoff, and reconciliation implications belong to [Atomic Transitions and Outbox](reliability/01_atomic_transitions_and_outbox.md). The architecture-level contract is shorter:
+The full table schema, dependent state/job/outbox CTE, publish claim, confirmation mark, failure backoff, and reconciliation implications belong to [Atomic Transitions and Outbox](../reliability/01_atomic_transitions_and_outbox.md). The architecture-level contract is shorter:
 
 - The domain transition and outbox row commit together.
 - The publisher marks delivery only after the broker confirms it.
@@ -200,7 +200,7 @@ both designs: domain DB and idempotency records own business evidence
 
 Do not layer an engine over an existing authoritative state machine and let both own the same transitions. Either make the engine history authoritative for orchestration while the database owns domain entities, or keep coordination in the database and use simpler workers. If committing a domain row must also start an engine execution, the cross-system dual write still needs an outbox, stable execution ID, or an engine-first transaction boundary.
 
-Use Step Functions Standard or Temporal when durable waits, signals, compensation, child workflows, and definition evolution are numerous enough that custom timer tables and reconcilers are becoming a runtime. Keep DB polling or hybrid dispatch for a few stable steps. Compare the products, their execution models, and the migration boundary in **[Workflow Orchestrator Selection](frameworks/00_workflow_orchestrator_selection.md)**.
+Use Step Functions Standard or Temporal when durable waits, signals, compensation, child workflows, and definition evolution are numerous enough that custom timer tables and reconcilers are becoming a runtime. Keep DB polling or hybrid dispatch for a few stable steps. Compare the products, their execution models, and the migration boundary in **[Workflow Orchestrator Selection](../frameworks/01_workflow_orchestrator_selection.md)**.
 
 ---
 
@@ -239,8 +239,8 @@ Web-server background hooks, local thread pools, and local process pools are acc
 
 ⚠️ A persistent scheduler store preserves the schedule, not necessarily the currently executing side effect. Create an idempotent durable job at each firing when execution matters.
 
-For concrete client-notification and callback patterns after work is submitted, continue to [Long-running task patterns](../architecture/long_running_tasks/README.md).
+For concrete client-notification and callback patterns after work is submitted, continue to [Long-running task patterns](../../architecture/long_running_tasks/README.md).
 
 ---
 
-**Next**: [Part 5: Task Execution Models](05_task_execution_models.md)
+**Next**: [Task Execution Models](02_task_execution_models.md)

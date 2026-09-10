@@ -26,7 +26,8 @@ partition offset alone, when the same logical event might be republished elsewhe
 
 Inject failure before the effect, after the effect, and before the offset commit. **Success signal:**
 every input reaches the intended final state and repeated attempts leave one effect. A passing
-consumer test without process termination silently proves none of this.
+consumer test without process termination silently proves none of this. Use the reusable
+[Kafka service test harness](05_testing_kafka_services.md) to control those crash points.
 
 > **Key insight**: “once” is not a client setting; it is a claim about the combined record,
 > checkpoint, and business-effect state transition.
@@ -43,4 +44,3 @@ by stable key may already make replay safe.
 ---
 
 **Next**: [Idempotence, Transactions, and Exactly Once](02_idempotence_transactions_and_exactly_once.md)
-
