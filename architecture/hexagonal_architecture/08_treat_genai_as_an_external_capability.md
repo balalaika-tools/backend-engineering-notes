@@ -135,7 +135,80 @@ promote only demonstrated shared semantics.
 
 ---
 
-## 6. Test the seam before paying for a live call
+## 6. Context-dependent agents separate reusable configuration from one run
+
+An investigation's valid reason codes and manuals can change after deployment. A single agent
+constructed at startup can retain an obsolete output schema; rebuilding everything for every
+message wastes work. The sample separates a **control context**, an immutable snapshot of manuals,
+valid codes, and schema names, from the agent machinery built for that snapshot.
+
+First follow one call with illustrative values:
+
+```text
+ResolveControlContext → context generation 7, allowed reason codes [R1, R2]
+InvestigateException → analyst.analyze(input, context=context)
+ContextualLLMExceptionAnalyst → build or reuse a harness for this context
+LLMExceptionAnalyst → invoke harness, validate output, return ExceptionAnalysis
+InvestigateException → interpret and checkpoint the result
+```
+
+A **harness** is the wrapper that assembles and executes the model, tools, middleware, and output
+handling. `agent.py` assembles the agent; `harness.py` adapts its execution interface;
+`analyst.py` presents the application-facing capability. These modules represent distinct work in
+this sample. A simple structured model call needs fewer modules.
+
+### Two caches avoid different kinds of repeated work
+
+`ResolveControlContext` uses a shared Redis cache keyed by tenant scope, deployment release, and
+configuration **generation**, a number advanced when configuration is reset. It coordinates a
+rebuild through a temporary exclusive lease so concurrent workers do not all fetch and summarize
+the same configuration. Summarized manuals have their own object-store keys that include the
+configuration digest and prompt version.
+
+`ContextualLLMExceptionAnalyst` separately caches constructed analysts inside one process. Its key
+includes the generation, manual digests, code vocabularies, and schema names. When the generation
+changes, it clears that local cache before selecting the analyst.
+
+```text
+call A: generation 7, context K → construct analyst A7
+call B: generation 7, context K → reuse A7; execute a new analysis
+call C: generation 8, context K → clear local cache; construct A8
+```
+
+Reusing an analyst does not mean reusing its answer. The sample creates a fresh tool-call budget
+inside each `analyze()` invocation. The reusable harness must likewise avoid leaking one
+investigation's conversation or tool state into another concurrent run.
+
+For the shared context, a reset can require refetching configuration while unchanged manual
+digests still permit reuse of stored summaries. “Cache invalidated” therefore does not imply
+“every investigation pays for a new summary.” The sample tests these separately in
+`tests/unit/application/test_resolve_control_context.py` and
+`tests/unit/genai/exception_analysis/test_contextual_analyst.py`.
+
+### Schema validation and application decisions remain different steps
+
+If the active vocabulary contains R1 and R2 but the model returns R9, the provider-facing schema
+and subsequent domain validation reject that result. `LLMExceptionAnalyst` converts accepted
+`AnalysisOutput` into `ExceptionAnalysis`; its caller never needs to inspect model messages.
+An exhausted transient provider failure becomes `AnalysisUnavailableError`, which the application
+classifies for investigation retry. Invalid analysis is a different outcome from unavailability.
+
+⚠️ A cache key that omits a changing input can preserve an old prompt or schema without raising
+an error. The tell is output validated against yesterday's vocabulary after a configuration
+change. Test equal contexts for reuse and changed contexts for reconstruction; do not infer cache
+correctness from reduced model latency.
+
+**Success signal:** the action sees the same typed capability regardless of how the harness is
+built; changing the configuration generation replaces cached construction; each analysis still
+gets fresh invocation state. These are architectural and behavioral checks, not a guarantee of
+answer quality, which requires [LLM testing and evaluation](../../operations/testing/13_testing_llm_code.md).
+
+Do not introduce generation caches and harness wrappers for a fixed prompt with one small model
+call. Add them when configuration changes and repeated construction create a measurable need.
+
+---
+
+## 7. Test the seam before paying for a live call
 
 Test prompt assembly, schema rejection, factories, capability invocation with a fake model handle,
 failure translation, graph routing, and authorization propagation separately. Ordinary unit tests
@@ -160,4 +233,3 @@ small model call belongs under the explicit `genai/` boundary.
 ---
 
 **Next**: [Part 9 — Test Through Architectural Boundaries](09_test_through_architectural_boundaries.md)
-

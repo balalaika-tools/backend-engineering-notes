@@ -19,10 +19,17 @@
 | [09 — Testing Boundaries](09_test_through_architectural_boundaries.md) | Implementation | Unit, integration, contract, and E2E tests | Test business behavior without patching SDK internals |
 | [10 — Flat-First Growth](10_grow_without_package_ceremony.md) | Decision guide | When modules earn packages and abstractions | Grow structure without empty layers or catch-alls |
 | [11 — Migration and Review](11_migrate_and_review_an_existing_service.md) | Decision guide | Moving an existing service safely | Produce an ownership map and incremental migration plan |
+| [12 — Investigation Case Study](12_trace_an_investigation_across_services.md) | Deep dive | One request across API, outbox, worker, and checkpoints | Trace durable changes and distinguish implemented behavior from unproven recovery guarantees |
+| [13 — Shared Libraries](13_share_libraries_without_service_layers.md) | Decision guide | Shared integrations, ORM models, and resource ownership | Explain which boundaries remain service-owned and when a library needs its own ports |
 
 ---
 
 ## Reading Order
+
+For the supplied `temp/services` and `temp/libs` examples, use
+[Read the service and library samples](#read-the-service-and-library-samples) after the first-time
+path's working slice. The case study includes self-contained traces so the temporary source
+folders are not required to understand it.
 
 ### First-time path
 
@@ -64,8 +71,31 @@ and clear test seams. Move code only when the map exposes a concrete violation o
 
 ---
 
+### Read the service and library samples
+
+**For:** readers who can already explain an application action and a port, and want to understand
+the supplied orchestrator, worker, and shared packages. Start with the first-time path above if
+those boundaries are still unfamiliar.
+
+**Working outcome by entry 2:** trace one accepted investigation into durable work and explain
+why its repositories share a transaction without sharing a session across concurrent requests.
+
+1. **Do:** follow sections 1–3 of [the investigation case study](12_trace_an_investigation_across_services.md), from the HTTP request through acceptance and active-work deduplication.
+2. **Understand:** read [the Unit of Work mechanism](05_design_ports_and_adapter_contracts.md#6-a-unit-of-work-makes-several-repositories-one-transaction), then identify the port, concrete session owner, and factory in that trace.
+3. **Extend across packages:** [Shared Libraries](13_share_libraries_without_service_layers.md) follows the CTC reader, shared table models, and observability configuration.
+4. **Harden—revisit the case study:** continue sections 4–7 for publication crashes, delivery ownership, checkpointed retry, and test evidence. Follow its reliability links for the full mechanisms.
+5. **Inspect construction:** [Runtime Composition](06_compose_the_runtime_at_the_edge.md) and [GenAI](08_treat_genai_as_an_external_capability.md) explain partial-startup cleanup, supervisors, context snapshots, and cached agent construction.
+
+**Stop after entry 3 if** you can locate and explain the action, transaction, service adapter,
+shared implementation, and construction site. Continue when diagnosing retries, stale ownership,
+startup failures, or changing AI configuration. The samples illustrate ownership decisions; they
+are not a universal scaffold or proof that every failure window is handled.
+
+---
+
 ## Prerequisites
 
 - Comfortable reading typed Python and `async` functions.
 - [FastAPI fundamentals](../../fundamentals/fastapi/README.md) are useful for the API chapter but not required for the first example.
 - [Testing fundamentals](../../operations/testing/README.md) provide the broader pytest path; this section focuses on tests as architectural evidence.
+- For the sample-reading path, [context managers](../../fundamentals/core_concepts/context_managers.md) and [typing](../../fundamentals/core_concepts/typing.md) provide optional depth on `async with`, `Callable`, and structural protocols.

@@ -132,6 +132,16 @@ deployable's private package.
 Keep service-specific policy local. Two functions with similar syntax but different business
 meaning are duplication, not necessarily reusable abstraction.
 
+The sample's `ctc_database`, `platform_db`, and `platform_observability` libraries show three
+concrete forms of reuse: database access, table mappings, and telemetry mechanics. None needs
+`application/`, `ports/`, and `bootstrap/` solely to resemble its consumers. A library earns
+internal ports when it owns policy that needs replaceable dependencies; a focused database
+implementation can remain directly coupled to its database technology.
+
+[Shared Libraries](13_share_libraries_without_service_layers.md) owns the detailed walkthrough:
+why the worker still wraps the shared CTC reader, how ORM models differ from domain state, and
+which schema and lifecycle obligations remain with the consumers.
+
 ---
 
 ## 6. Navigation pain and dependency leaks are the growth signals
@@ -155,4 +165,3 @@ dependency graph.
 ---
 
 **Next**: [Part 11 — Migrate and Review an Existing Service](11_migrate_and_review_an_existing_service.md)
-

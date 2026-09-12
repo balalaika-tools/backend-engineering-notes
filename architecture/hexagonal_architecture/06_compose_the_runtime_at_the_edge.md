@@ -45,16 +45,15 @@ class Runtime:
 @asynccontextmanager
 async def build_runtime(settings: Settings) -> AsyncIterator[Runtime]:
     engine = create_async_engine(settings.database_url)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    model = build_model(
-        model_name=settings.classification_model,
-        model_provider=settings.model_provider,
-    )
-    classifier = LLMTicketClassifier(model=model)
-    repository = SqlAlchemyTicketRepository(session_factory)
-    action = ClassifyTicket(repository, classifier)
-
     try:
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        model = build_model(
+            model_name=settings.classification_model,
+            model_provider=settings.model_provider,
+        )
+        classifier = LLMTicketClassifier(model=model)
+        repository = SqlAlchemyTicketRepository(session_factory)
+        action = ClassifyTicket(repository, classifier)
         yield Runtime(action, session_factory)
     finally:
         await engine.dispose()
@@ -144,7 +143,91 @@ runs actions sequentially.
 
 ---
 
-## 6. Readiness and shutdown prove lifecycle ownership
+## 6. Partial startup needs cleanup before a runtime exists
+
+Suppose the worker creates database engines and an HTTP client, then fails to connect to the
+broker. There is no completed runtime for the caller to close. Each successfully acquired resource
+must already have a cleanup owner before the next acquisition can fail.
+
+`AsyncExitStack` is a standard-library cleanup registry: callbacks run in reverse registration
+order when the stack closes. The sample worker registers cleanup during `_build_resources()`,
+then uses `pop_all()` to transfer those callbacks to the runtime without executing them. If
+`_compose_runtime()` fails afterward, `build_runtime()` closes the resource bundle instead.
+
+This standalone Python example demonstrates that ownership transfer using recorded events instead
+of live clients. Run the whole block as a script; it needs only the standard library:
+
+```python
+import asyncio
+from contextlib import AsyncExitStack
+
+
+async def build(events: list[str], *, fail: bool) -> AsyncExitStack:
+    async def close(name: str) -> None:
+        events.append(f"close {name}")
+
+    async with AsyncExitStack() as pending:
+        for name in ("database", "http"):
+            events.append(f"open {name}")
+            pending.push_async_callback(close, name)
+        if fail:
+            raise RuntimeError("broker unavailable")
+        return pending.pop_all()
+
+
+async def main() -> None:
+    failed: list[str] = []
+    try:
+        await build(failed, fail=True)
+    except RuntimeError:
+        pass
+    assert failed == ["open database", "open http", "close http", "close database"]
+
+    succeeded: list[str] = []
+    runtime_cleanup = await build(succeeded, fail=False)
+    assert succeeded == ["open database", "open http"]
+    await runtime_cleanup.aclose()
+    assert succeeded == failed
+    print("startup failure and runtime shutdown both clean up in reverse order")
+
+
+asyncio.run(main())
+```
+
+The printed line is the success signal. The first assertion detects leaked partial startup;
+the second detects premature cleanup caused by returning clients without transferring ownership.
+This verifies the lifecycle mechanism, not connectivity or graceful worker draining.
+
+Returning a resource bundle makes ownership explicit; it does not make concurrent work stop.
+The supervisor must first stop intake and resolve or cancel in-flight tasks within the shutdown
+budget, then close the stack. Cancellation and provider-specific close operations still need
+bounded handling; see [signals and shutdown](../../fundamentals/core_concepts/signals.md).
+
+### Several supervisors can share resources without owning business stages
+
+In the investigation worker, `AdmissionSupervisor` controls how much work enters, `AimdSupervisor`
+adjusts the concurrency target, and `ReconcilerSupervisor` runs periodic checks. **AIMD**, additive
+increase and multiplicative decrease, means raising capacity gradually during stable operation
+and cutting it proportionally under pressure. Its pure decisions live in `domain/admission.py`;
+the supervisor supplies observations and timing.
+
+```text
+current target 4; stable window; chosen increase 1 → target 5
+current target 4; pressure window; decrease factor 0.5 → target 2
+```
+
+These are illustrative policy inputs, not the sample's configured defaults. Changing the target
+controls future admission; it does not undo work already running. The investigation's analysis,
+write-back, and checkpoint order remains in `application/investigate_exception.py`.
+
+⚠️ A supervisor can be alive while repeatedly failing its useful work. Readiness needs progress
+evidence, and shutdown needs tests for a stalled action, not just a successful cleanup callback.
+The sample's `tests/unit/bootstrap/test_runtime.py` exercises composition failure; its
+`test_supervisor.py` exercises drain timeout and interruption handling. Those are different claims.
+
+---
+
+## 7. Readiness and shutdown prove lifecycle ownership
 
 **Success signal:** startup builds one shared graph, readiness becomes true only after required
 dependencies initialize, and shutdown stops intake before closing those dependencies. Tests can
@@ -164,4 +247,3 @@ narrower lifetime.
 ---
 
 **Next**: [Part 7 — Apply the Pattern to APIs and Workers](07_apply_the_pattern_to_apis_and_workers.md)
-

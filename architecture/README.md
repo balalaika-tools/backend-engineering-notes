@@ -14,7 +14,7 @@ These guides assume familiarity with the fundamentals. They show how the pieces 
 
 | Topic | Description |
 |-------|-------------|
-| [Hexagonal Architecture](hexagonal_architecture/README.md) | An 11-part path from coupling pressure and one runnable vertical slice through ports, adapters, composition, APIs, workers, GenAI, testing, and migration |
+| [Hexagonal Architecture](hexagonal_architecture/README.md) | A 13-part path from one runnable vertical slice through ports, transactions, runtime composition, GenAI, testing, migration, and a service/shared-library case study |
 | [Long-Running Tasks](long_running_tasks/README.md) | Handling requests that take seconds to hours: orchestration, worker patterns, client delivery, infrastructure, sagas/outbox |
 
 <!-- Future topics:

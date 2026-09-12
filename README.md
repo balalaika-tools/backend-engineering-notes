@@ -49,7 +49,7 @@
 | Area | Covers | Start here |
 |---|---|---|
 | [Background Work](background_work/README.md) | Durable tasks, queues, scheduling, stateful workflows, reliability, operations, and framework selection | [Minimal durable task](background_work/foundations/03_minimal_durable_task.md) |
-| [Hexagonal Architecture](architecture/hexagonal_architecture/README.md) | Ports, adapters, composition, APIs, workers, GenAI, testing, and migration | [Why hexagonal architecture](architecture/hexagonal_architecture/01_why_hexagonal_architecture.md) |
+| [Hexagonal Architecture](architecture/hexagonal_architecture/README.md) | Ports, adapters, transactions, composition, APIs, workers, GenAI, shared libraries, and a service case study | [Why hexagonal architecture](architecture/hexagonal_architecture/01_why_hexagonal_architecture.md) |
 | [Long-Running Tasks](architecture/long_running_tasks/README.md) | Orchestration, client delivery, worker patterns, infrastructure, sagas, and outbox | [Overview](architecture/long_running_tasks/README.md) |
 | [Testing](operations/testing/README.md) | pytest, endpoint tests, dependency overrides, fixtures, databases, mocking, CI, and LLM tests | [Testing setup](operations/testing/02_setup.md) |
 | [Deployment](operations/deployment/README.md) | Docker, Uvicorn, Gunicorn, health checks, graceful shutdown, and production rollout | [Docker and deployment](operations/deployment/docker_and_deployment.md) |

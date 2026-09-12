@@ -1,0 +1,13 @@
+[project]
+name = "ctc-database"
+version = "0.1.0"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "asyncpg>=0.31.0",
+    "pydantic>=2.11,<3",
+    "sqlalchemy[asyncio]>=2.0.52",
+]
+
+[build-system]
+requires = ["hatchling>=1.32.0,<2"]
+build-backend = "hatchling.build"

@@ -117,21 +117,114 @@ classifier was unavailable, or output was rejected.
 
 ---
 
-## 5. Database ports are optional rather than ceremonial
+## 5. A repository contract preserves the same dependency rule
 
-A fixed database behind a cohesive repository layer may already isolate query mechanics. Adding a
-`Protocol` above every repository can duplicate methods without changing tests or substitution.
+A repository that returns domain types shields its caller from database rows, but importing its
+SQLAlchemy implementation into `application/` still creates an outward source dependency. Moving
+construction to bootstrap does not remove that import, even if it appears only in an annotation.
 
-Add a repository port when application tests gain a clean fake, multiple persistence strategies
-exist, or persistence failures form an application-relevant contract. Otherwise inject the
-repository class directly while keeping its SQLAlchemy implementation in `db/`.
+For this collection's strict dependency rule, declare the application-facing persistence contract
+in `ports/` and inject its implementation from bootstrap. Python's structural typing lets a class
+satisfy a `Protocol` by supplying the required methods; explicit inheritance is unnecessary. One
+cohesive contract can describe an action's persistence needs without creating an interface for
+every query or helper.
 
-This is still dependency-aware design: a concrete repository can accept and return domain types
-without leaking ORM sessions through application code.
+A small layered application can deliberately inject and import a concrete repository. That is a
+simpler alternative with a weaker isolation guarantee, not an exception to the import rule taught
+in [part 3](03_dependencies_point_toward_business_policy.md). Choose it when that coupling is
+acceptable rather than calling the two designs equivalent.
 
 ---
 
-## 6. Contract tests and observability reveal translation mistakes
+## 6. A Unit of Work makes several repositories one transaction
+
+Accepting an investigation can require a request row, an investigation row, a link between them,
+and a pending event. If each repository commits independently, a failure writing the event can
+leave an accepted investigation that nobody will execute.
+
+A **Unit of Work** is the application's contract for a group of persistence operations that commit
+or roll back together. In the supplied orchestrator, `InvestigationUnitOfWork` exposes `requests`,
+`investigations`, `outbox`, async context-manager methods, and `commit()`. The **outbox** is a table
+of events owed to the broker, written in the same transaction as the business state.
+
+Trace a new investigation with illustrative IDs:
+
+```text
+one Unit of Work / one database session
+  requests.add(...)                         → request R-1
+  investigations.insert_or_attach(...)     → investigation I-1, created=True
+  outbox.add_investigation_requested(...)  → pending event E-1
+  requests.attach_investigation(...)       → R-1 linked to I-1 at position 0
+  commit()                                 → all four writes become durable together
+```
+
+The action decides which operations must form one business transaction. The concrete Unit of Work
+supplies the session and implements commit, rollback, cleanup, and database-error translation.
+Its repositories issue queries through that same session; they do not commit independently.
+
+An explanatory excerpt from the concrete constructor shows why a single commit reaches them all:
+
+```python
+def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    self._session = session_factory()
+    self.requests = RequestRepository(self._session)
+    self.investigations = InvestigationRepository(self._session)
+    self.outbox = OutboxRepository(self._session)
+```
+
+`flush()` may send a repository's pending changes to the database before `commit()`. It does not
+make them independently durable. If the final attachment fails before commit, rollback removes
+the new request, investigation, and event together. If I-1 already existed, rollback leaves that
+previously committed investigation intact and discards only this transaction's changes.
+
+### A factory gives every execution a fresh session
+
+Bootstrap may construct one long-lived action, but concurrent requests cannot share one mutable
+transaction. The injected `Callable[[], InvestigationUnitOfWork]` means “a function that takes no
+arguments and returns a fresh Unit of Work.” This explanatory excerpt shows its construction:
+
+```python
+def investigation_uow() -> SqlAlchemyInvestigationUnitOfWork:
+    return SqlAlchemyInvestigationUnitOfWork(session_factory)
+
+
+action = RequestInvestigations(
+    unit_of_work_factory=investigation_uow,
+    max_batch_size=100,
+    subject="investigations.requested",
+)
+```
+
+Inside `execute()`, `async with self._unit_of_work_factory() as unit_of_work` calls that factory,
+awaits `__aenter__()`, and later awaits `__aexit__()` on either success or failure. In this sample,
+commit is explicit: exiting the block successfully does not automatically commit. The concrete
+implementation rolls back on a body exception and closes the session on either path.
+
+**Success signal:** each execution receives a different session, all repositories within one
+execution share it, and a failure before commit leaves no partially accepted batch. A unit fake
+can verify sequencing, but only a real database test proves rollback and concurrent uniqueness.
+The sample's acceptance fake mutates dictionaries immediately and has a no-op commit; it does
+not simulate transactional rollback.
+
+### Keep the transaction shorter than the external work
+
+An LLM call or object-store upload cannot be rolled back by the platform database. Holding its
+session open during those calls consumes a connection without making the external effects atomic.
+The worker therefore loads state in one Unit of Work, closes it, performs external work, and opens
+another to persist the result. A **checkpoint**, a durable record of completed progress, makes
+that separation resumable; [the case study](12_trace_an_investigation_across_services.md) follows it.
+
+⚠️ A lost connection during commit can leave the outcome unknown: the database may have committed
+before the client lost the response. A translated “unavailable” error does not prove rollback.
+Recovery needs a durable lookup or an idempotency contract, as explained in
+[atomic transitions and outbox](../../background_work/reliability/01_atomic_transitions_and_outbox.md).
+
+Do not add a multi-repository Unit of Work merely for a single read. A narrow reader port may be
+enough. Introduce the grouping when the action needs atomic changes or a shared transaction view.
+
+---
+
+## 7. Contract tests and observability reveal translation mistakes
 
 **Success signal:** an application unit test can drive each meaningful success and failure outcome
 using a tiny fake, while the action imports no SDK exceptions. Separately, adapter tests prove each
@@ -151,4 +244,3 @@ already clear. The interface adds indirection without isolating volatility or fa
 ---
 
 **Next**: [Part 6 — Compose the Runtime at the Edge](06_compose_the_runtime_at_the_edge.md)
-

@@ -153,5 +153,4 @@ did not establish meaningful ownership.
 
 ---
 
-**Next**: return to the [Hexagonal Architecture index](README.md) and choose the API/worker, AI, or migration path that matches your service.
-
+**Next**: [Part 12 — Trace One Investigation Across Services](12_trace_an_investigation_across_services.md), or return to the [Hexagonal Architecture index](README.md) for another reading path.

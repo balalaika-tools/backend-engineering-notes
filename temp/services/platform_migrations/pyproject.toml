@@ -1,0 +1,17 @@
+[project]
+name = "platform-migrations"
+version = "0.1.0"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "alembic>=1.18.4,<2",
+    "asyncpg>=0.31.0,<1",
+    "platform-db",
+    "sqlalchemy[asyncio]>=2.0.48,<3",
+]
+
+[tool.uv.sources]
+platform-db = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.32.0,<2"]
+build-backend = "hatchling.build"

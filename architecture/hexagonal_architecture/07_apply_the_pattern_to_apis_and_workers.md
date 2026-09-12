@@ -150,10 +150,15 @@ it. Move the rule into the shared action or domain owner rather than adding anot
 Do not share an action when the two entry points perform materially different business operations.
 Give each operation a precise public action even if both call some of the same domain behavior.
 
+For example, the supplied API's `RequestInvestigations` accepts durable work, while the worker's
+`InvestigateException` performs it. These are different operations connected by an event and
+persisted state. They should not be forced into one shared action merely because both refer to
+investigations. The [investigation case study](12_trace_an_investigation_across_services.md) traces
+that handoff and the handler's overlap between transport and execution coordination.
+
 > **Production:** make shutdown, acknowledgement, idempotency, and trace propagation observable.
 > A healthy route alone does not prove a background consumer is progressing.
 
 ---
 
 **Next**: [Part 8 — Treat GenAI as an External Capability](08_treat_genai_as_an_external_capability.md)
-

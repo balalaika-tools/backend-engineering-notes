@@ -84,6 +84,12 @@ Logically, `api/`, `db/`, and `genai/` are adapters. Physically, they receive sp
 because HTTP transport, persistence, and generative AI each develop recognizable ownership and
 testing needs. Ordinary external integrations remain under `adapters/<provider-or-technology>/`.
 
+The supplied orchestrator and worker use this general shape. Follow
+[one investigation across their files](12_trace_an_investigation_across_services.md) to see how
+the owners cooperate. Shared `libs/` packages are a separate packaging choice: a database library
+remains an outer implementation dependency, as explained in
+[Shared Libraries](13_share_libraries_without_service_layers.md).
+
 Do not add root `messaging/`; broker consumers, publishers, delivery envelopes, acknowledgements,
 and visibility mechanics are provider adapters. Do not place model code in general `adapters/`;
 this repository standardizes every prompt, model, agent, AI schema, tool, and graph under `genai/`.
@@ -179,4 +185,3 @@ cohesive import package, a deliberate public API, and its own tests; it should n
 ---
 
 **Next**: [Part 5 — Design Ports and Adapter Contracts](05_design_ports_and_adapter_contracts.md)
-

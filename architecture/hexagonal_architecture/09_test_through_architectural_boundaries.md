@@ -67,6 +67,12 @@ outer ports replaced is a unit test of transport translation, not an end-to-end 
 The [testing notes](../../operations/testing/README.md) own general pytest mechanics. This chapter
 owns how test seams demonstrate the architectural dependency graph.
 
+The [investigation case study's evidence map](12_trace_an_investigation_across_services.md#7-tests-turn-the-source-tour-into-evidence)
+connects existing sample tests to acceptance, checkpointed retry, and delivery behavior. Pay
+attention to fake semantics: an in-memory Unit of Work with a no-op commit can prove action
+sequencing while proving nothing about database rollback. Use real transaction tests for that
+claim rather than making the fake look like an ORM.
+
 ---
 
 ## 3. Adapter tests prove translation in both directions
@@ -158,4 +164,3 @@ justifies it.
 ---
 
 **Next**: [Part 10 — Grow Without Package Ceremony](10_grow_without_package_ceremony.md)
-
